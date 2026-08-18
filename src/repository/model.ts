@@ -1,4 +1,76 @@
 import type { RepositorySnapshot } from "./snapshot.js";
-export interface DependencyEdge {from:string;to:string;kind:string} export interface SymbolRecord{name:string;file:string;kind:string;exported:boolean} export interface EffectRecord{file:string;kind:string;detail:string} export interface StateRecord{namespace:string;file:string;kind:string}
-export interface RepositoryModel {snapshot:RepositorySnapshot;dependencies:readonly DependencyEdge[];symbols:readonly SymbolRecord[];effects:readonly EffectRecord[];states:readonly StateRecord[]}
-export const emptyModel=(snapshot:RepositorySnapshot):RepositoryModel=>({snapshot,dependencies:[],symbols:[],effects:[],states:[]});
+
+export type DependencyKind = "import" | "side-effect-import" | "export-from" | "dynamic-import" | "require" | "style-import" | "template-reference" | "manifest-reference";
+
+export interface DependencyReference {
+  readonly file: string;
+  readonly specifier: string;
+  readonly kind: DependencyKind;
+  readonly line: number;
+}
+
+export interface DependencyEdge extends DependencyReference {
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface UnresolvedDependency extends DependencyReference {
+  readonly external: boolean;
+  readonly candidates: readonly string[];
+}
+
+export interface SymbolRecord {
+  readonly name: string;
+  readonly file: string;
+  readonly kind: "function" | "class" | "variable";
+  readonly exported: boolean;
+  readonly line: number;
+}
+
+export interface EffectRecord {
+  readonly file: string;
+  readonly kind: string;
+  readonly detail: string;
+  readonly line: number;
+  readonly symbol: string;
+}
+
+export interface StateRecord {
+  readonly namespace: string;
+  readonly key: string;
+  readonly file: string;
+  readonly kind: "foundry-flag" | "foundry-setting" | "web-storage" | "public-global" | "flag-path";
+  readonly operation: string;
+  readonly access: "read" | "write" | "delete" | "unknown";
+  readonly namespaceResolved: boolean;
+  readonly keyResolved: boolean;
+  readonly line: number;
+}
+
+export interface FileFacts {
+  readonly file: string;
+  readonly dependencies: readonly DependencyReference[];
+  readonly symbols: readonly SymbolRecord[];
+  readonly effects: readonly EffectRecord[];
+  readonly states: readonly StateRecord[];
+}
+
+export interface RepositoryModel {
+  readonly snapshot: RepositorySnapshot;
+  readonly fileFacts: readonly FileFacts[];
+  readonly dependencies: readonly DependencyEdge[];
+  readonly unresolvedDependencies: readonly UnresolvedDependency[];
+  readonly symbols: readonly SymbolRecord[];
+  readonly effects: readonly EffectRecord[];
+  readonly states: readonly StateRecord[];
+}
+
+export const emptyModel = (snapshot: RepositorySnapshot): RepositoryModel => Object.freeze({
+  snapshot,
+  fileFacts: Object.freeze([]),
+  dependencies: Object.freeze([]),
+  unresolvedDependencies: Object.freeze([]),
+  symbols: Object.freeze([]),
+  effects: Object.freeze([]),
+  states: Object.freeze([])
+});
