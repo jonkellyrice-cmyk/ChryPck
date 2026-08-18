@@ -11,10 +11,12 @@ import {
   GuardError,
   SourceGrantStore,
   assertAllowedRepository,
+  assertScopeLock,
   extractFailureEvidence,
   extractGrantedPathsFromLog,
   normalizeRepositoryPath,
-  validateToolchainRequest
+  validateToolchainRequest,
+  type ScopeLock
 } from "./policy.js";
 
 const config = loadConfig();
@@ -70,11 +72,38 @@ function newestConfiguredWorkflow(runs: readonly WorkflowRun[]): WorkflowRun | n
   return candidates[0] ?? null;
 }
 
+async function loadRequestScopeLock(repository: string, requestCommitSha: string): Promise<ScopeLock> {
+  const requestFile = await github.getTextFile(repository, config.requestPath, requestCommitSha);
+  if (!requestFile) {
+    throw new GuardError("ABSTRACTION_GAP", "Canonical toolchain request is missing at the inspected commit.", {
+      repository,
+      requestCommitSha,
+      requestPath: config.requestPath
+    });
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(requestFile.text);
+  } catch (error) {
+    throw new GuardError("ABSTRACTION_GAP", "Canonical toolchain request is not valid JSON at the inspected commit.", {
+      repository,
+      requestCommitSha,
+      requestPath: config.requestPath,
+      parseError: error instanceof Error ? error.message : String(error)
+    });
+  }
+
+  const validated = validateToolchainRequest(parsed);
+  return assertScopeLock(validated as Record<string, any>);
+}
+
 async function collectRunEvidence(
   repository: string,
   requestCommitSha: string,
   run: WorkflowRun | null,
-  state: "pending" | "success" | "failure"
+  state: "pending" | "success" | "failure",
+  scopeLock: ScopeLock
 ) {
   if (!run) {
     return { jobs: [] as WorkflowJob[], grantedPaths: [] as string[], failureEvidence: [] as unknown[], grant: null };
@@ -104,7 +133,7 @@ async function collectRunEvidence(
 
   const paths = [...grantedPaths].sort();
   const evidence = `workflow-run:${run.id}${evidenceJobs.length ? `;jobs:${evidenceJobs.join(",")}` : ""}`;
-  const grant = sourceGrants.issue(repository, requestCommitSha, paths, evidence);
+  const grant = sourceGrants.issue(repository, requestCommitSha, paths, evidence, scopeLock);
   return { jobs, grantedPaths: paths, failureEvidence, grant };
 }
 
@@ -133,6 +162,7 @@ function buildMcpServer(): McpServer {
     async ({ repository, request, commit_message }) => toolBoundary(async () => {
       const allowedRepository = assertAllowedRepository(repository, config.allowedRepositories);
       const validated = validateToolchainRequest(request);
+      const scopeLock = assertScopeLock(validated as Record<string, any>);
       const serialized = `${JSON.stringify(validated, null, 2)}\n`;
       const result = await github.upsertTextFile(
         allowedRepository,
@@ -148,6 +178,7 @@ function buildMcpServer(): McpServer {
         request_id: validated.id,
         request_commit_sha: result.commitSha,
         content_sha: result.contentSha,
+        scope_lock_fingerprint: scopeLock.fingerprint,
         mutation_authority: "repository-toolchain",
         direct_source_mutation_permitted: false
       };
@@ -174,17 +205,19 @@ function buildMcpServer(): McpServer {
     },
     async ({ repository, request_commit_sha }) => toolBoundary(async () => {
       const allowedRepository = assertAllowedRepository(repository, config.allowedRepositories);
+      const scopeLock = await loadRequestScopeLock(allowedRepository, request_commit_sha);
       const combined = await github.getCombinedStatus(allowedRepository, request_commit_sha);
       const state = terminalState(combined.statuses);
       const runs = await github.listWorkflowRunsForCommit(allowedRepository, request_commit_sha);
       const run = newestConfiguredWorkflow(runs);
-      const evidence = await collectRunEvidence(allowedRepository, request_commit_sha, run, state);
+      const evidence = await collectRunEvidence(allowedRepository, request_commit_sha, run, state, scopeLock);
 
       return {
         state: state.toUpperCase(),
         terminal: state !== "pending",
         repository: allowedRepository,
         request_commit_sha,
+        scope_lock_fingerprint: scopeLock.fingerprint,
         required_status_contexts: config.requiredStatusContexts,
         statuses: combined.statuses.map(status => ({
           context: status.context,
@@ -200,7 +233,8 @@ function buildMcpServer(): McpServer {
           ? {
               paths: evidence.grantedPaths,
               evidence: evidence.grant.evidence,
-              expires_at: new Date(evidence.grant.expiresAt).toISOString()
+              expires_at: new Date(evidence.grant.expiresAt).toISOString(),
+              scope_lock_fingerprint: scopeLock.fingerprint
             }
           : null,
         permitted_next_action:
