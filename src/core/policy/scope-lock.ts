@@ -1,2 +1,7 @@
-/** Native Scope Lock policy and immutable task authority. */
-export {};
+import { PolicyError } from "./errors.js";
+export interface ScopeLock { readonly lockId:string; readonly originalUserInstruction:string; readonly authorizedDeliverables:readonly string[]; readonly authorizedPaths:readonly string[]; readonly forbiddenExpansions:readonly string[]; readonly allowCapabilityConstruction:boolean; readonly authorizedCapabilities:readonly string[]; }
+export function createScopeLock(input: Omit<ScopeLock,"authorizedPaths"|"forbiddenExpansions"|"allowCapabilityConstruction"|"authorizedCapabilities"> & Partial<Pick<ScopeLock,"authorizedPaths"|"forbiddenExpansions"|"allowCapabilityConstruction"|"authorizedCapabilities">>): ScopeLock {
+  if (!input.lockId.trim() || !input.originalUserInstruction.trim() || !input.authorizedDeliverables.length) throw new PolicyError("SCOPE_VIOLATION","Invalid Scope Lock.");
+  return Object.freeze({...input, authorizedPaths:Object.freeze([...(input.authorizedPaths ?? [])]), forbiddenExpansions:Object.freeze([...(input.forbiddenExpansions ?? [])]), allowCapabilityConstruction:input.allowCapabilityConstruction ?? false, authorizedCapabilities:Object.freeze([...(input.authorizedCapabilities ?? [])])});
+}
+export function assertPathInScope(lock:ScopeLock,path:string):void { if(lock.authorizedPaths.length && !lock.authorizedPaths.some(p=>path===p||path.startsWith(p.endsWith("/")?p:p+"/"))) throw new PolicyError("SCOPE_VIOLATION","Path is outside the active Scope Lock.",{path,lockId:lock.lockId}); }

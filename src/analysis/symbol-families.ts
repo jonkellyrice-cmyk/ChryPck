@@ -1,2 +1,1 @@
-/** Native symbol-family analyzer. */
-export {};
+import type { RepositoryModel } from "../repository/model.js"; import type { Analyzer } from "./analyzer.js"; export const symbolFamiliesAnalyzer:Analyzer={name:"symbol-families",analyze(model:RepositoryModel){const m=new Map<string,Set<string>>();for(const s of model.symbols){const x=m.get(s.name)??new Set<string>();x.add(s.file);m.set(s.name,x)}return{analyzer:"symbol-families",findings:[...m].map(([name,files])=>({name,files:[...files]}))};}};

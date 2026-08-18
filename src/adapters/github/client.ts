@@ -1,2 +1,1 @@
-/** Minimal internal GitHub API client transport. */
-export {};
+export interface GitHubTransportClient{resolveCommit(repository:string,ref:string):Promise<string>;listFiles(repository:string,sha:string):Promise<readonly {path:string;sha:string;size:number}[]>;readTextFile(repository:string,path:string,sha:string):Promise<{path:string;sha:string;size:number;text:string}|null>;commitFiles(repository:string,baseSha:string,message:string,changes:ReadonlyMap<string,string|null>):Promise<{sha:string}>}

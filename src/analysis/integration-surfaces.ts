@@ -1,2 +1,1 @@
-/** Native integration-surface analyzer. */
-export {};
+import type { RepositoryModel } from "../repository/model.js"; import type { Analyzer } from "./analyzer.js"; export const integrationSurfacesAnalyzer:Analyzer={name:"integration-surfaces",analyze(model:RepositoryModel){const c=new Map<string,number>();for(const e of model.dependencies){c.set(e.from,(c.get(e.from)??0)+1);c.set(e.to,(c.get(e.to)??0)+1)}return{analyzer:"integration-surfaces",findings:[...c].map(([file,degree])=>({file,degree})).sort((a,b)=>b.degree-a.degree)};}};

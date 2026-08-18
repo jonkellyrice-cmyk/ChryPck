@@ -1,2 +1,1 @@
-/** Native automatic patch-staging planner. */
-export {};
+import type { PatchCorridor } from "./patch-corridor.js"; export interface PatchStage{id:string;files:readonly string[];dependsOn:readonly string[]} export const singleStage=(c:PatchCorridor):readonly PatchStage[]=>[{id:"stage-1",files:c.files.map(f=>f.path),dependsOn:[]}];

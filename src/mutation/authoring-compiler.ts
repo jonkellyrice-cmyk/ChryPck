@@ -1,2 +1,1 @@
-/** Intent-to-deterministic-patch authoring compiler. */
-export {};
+import type { PatchSpec } from "./patch-dsl.js"; export interface AuthoringIntent{id:string;objective:string;instructions:readonly string[]} export interface AuthoringCompiler{compile(intent:AuthoringIntent):Promise<PatchSpec>|PatchSpec} export class PendingAuthoringCompiler implements AuthoringCompiler{compile(i:AuthoringIntent):PatchSpec{throw new Error(`Authoring compiler not yet ported: ${i.id}`)}}

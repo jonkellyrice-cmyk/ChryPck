@@ -1,2 +1,1 @@
-/** Native structural and semantic validation coordinator. */
-export {};
+export interface ValidationFinding{validator:string;severity:"info"|"warning"|"error";message:string;path?:string} export interface ValidationResult{passed:boolean;findings:readonly ValidationFinding[]} export interface Validator<T>{name:string;validate(value:T):Promise<ValidationResult>|ValidationResult} export async function runValidators<T>(v:T,vs:readonly Validator<T>[]):Promise<ValidationResult>{const findings:ValidationFinding[]=[];for(const x of vs)findings.push(...(await x.validate(v)).findings);return{passed:!findings.some(f=>f.severity==="error"),findings};}

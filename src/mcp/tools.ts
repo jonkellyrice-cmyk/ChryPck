@@ -1,2 +1,1 @@
-/** MCP tool registration surface for governed ChryPck operations. */
-export {};
+export const CHRYPCK_TOOL_NAMES=["chrypck_plan","chrypck_context","chrypck_execute","chrypck_result"] as const; export type ChryPckToolName=typeof CHRYPCK_TOOL_NAMES[number]; export const CHRYPCK_TOOLS=Object.freeze([{name:"chrypck_plan",readOnly:true},{name:"chrypck_context",readOnly:true},{name:"chrypck_execute",readOnly:false},{name:"chrypck_result",readOnly:true}] as const);

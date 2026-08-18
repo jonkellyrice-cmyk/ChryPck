@@ -1,2 +1,1 @@
-/** Native bounded Corridor Context Pack service. */
-export {};
+import type { RepositoryModel } from "../repository/model.js"; import type { PatchCorridor } from "./patch-corridor.js"; export interface ContextSegment{id:string;path:string;content:string;evidence:readonly string[]} export function buildContextPack(c:PatchCorridor,m:RepositoryModel){const p=new Set(c.files.map(f=>f.path));return{objective:c.objective,segments:m.snapshot.files.filter(f=>p.has(f.path)&&f.text!==undefined).map(f=>({id:`file:${f.path}`,path:f.path,content:f.text??"",evidence:["patch-corridor"]}))};}

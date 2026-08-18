@@ -1,2 +1,1 @@
-/** Atomic mutation transaction and rollback model. */
-export {};
+import type { StagedPatch } from "./file-patcher.js"; export interface CommitReceipt{commitSha:string;changedPaths:readonly string[]} export interface MutationTransaction{validate(staged:StagedPatch):Promise<void>;commit(staged:StagedPatch):Promise<CommitReceipt>}

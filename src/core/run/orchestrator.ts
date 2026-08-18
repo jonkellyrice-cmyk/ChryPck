@@ -1,2 +1,3 @@
-/** Native deterministic toolchain run orchestrator. */
-export {};
+import type { ScopeLock } from "../policy/scope-lock.js"; import type { AbstractionLock } from "../policy/abstraction-lock.js"; import { assertTransition,isTerminal,type RunState } from "./run-state.js"; import { RunTelemetry } from "./telemetry.js";
+export interface ToolchainRun { runId:string; repository:string; objective:string; scopeLock:ScopeLock; abstractionLock:AbstractionLock; state:RunState; telemetry:RunTelemetry; }
+export class RunController { constructor(readonly run:ToolchainRun){} transition(next:RunState,event=next){if(isTerminal(this.run.state))throw new Error(`Run ${this.run.runId} is terminal.`);assertTransition(this.run.state,next);this.run.state=next;this.run.telemetry.record(next,event);return this.run;} }

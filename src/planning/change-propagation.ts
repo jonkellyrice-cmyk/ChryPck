@@ -1,2 +1,1 @@
-/** Native change-propagation simulator. */
-export {};
+import type { RepositoryModel } from "../repository/model.js"; export interface ProposedChange{path:string;before:string|null;after:string|null} export function assessPropagation(changes:readonly ProposedChange[],model:RepositoryModel){const changed=new Set(changes.map(c=>c.path));const consumers=[...new Set(model.dependencies.filter(e=>changed.has(e.to)).map(e=>e.from))];return{safeStandalone:consumers.length===0,immediateConsumers:consumers,verificationTargets:[...new Set([...changed,...consumers])]};}

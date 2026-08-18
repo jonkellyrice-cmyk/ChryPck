@@ -1,2 +1,1 @@
-/** Native Patch Corridor planning service. */
-export {};
+import type { RepositoryModel } from "../repository/model.js"; export interface CorridorFile{path:string;reasons:readonly string[];confidence:number} export interface PatchCorridor{objective:string;certified:boolean;files:readonly CorridorFile[];gaps:readonly string[]} export const uncertifiedCorridor=(objective:string,_model:RepositoryModel):PatchCorridor=>({objective,certified:false,files:[],gaps:["Legacy Patch Corridor algorithm not yet ported."]});

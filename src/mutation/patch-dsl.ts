@@ -1,2 +1,1 @@
-/** Native bounded patch DSL types and compiler boundary. */
-export {};
+export type PatchOperation={type:"create_file";path:string;content:string}|{type:"replace_file";path:string;content:string;expectedSha256?:string}|{type:"replace_exact";path:string;search:string;replace:string;expectedOccurrences?:number;expectedSha256?:string}; export interface PatchSpec{id:string;objective:string;operations:readonly PatchOperation[]}

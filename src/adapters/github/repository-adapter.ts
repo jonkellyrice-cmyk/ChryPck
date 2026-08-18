@@ -1,2 +1,1 @@
-/** GitHub-backed RepositoryTransport adapter. */
-export {};
+import type { GitHubTransportClient } from "./client.js"; import { createSnapshot } from "../../repository/snapshot.js"; export class GitHubRepositoryAdapter{constructor(private readonly client:GitHubTransportClient){}async snapshot(repository:string,ref="HEAD"){const sha=await this.client.resolveCommit(repository,ref),files=await this.client.listFiles(repository,sha);return createSnapshot(repository,sha,files)}}

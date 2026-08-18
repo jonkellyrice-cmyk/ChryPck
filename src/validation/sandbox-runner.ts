@@ -1,2 +1,1 @@
-/** Isolated runner boundary for repository-provided validation commands. */
-export {};
+export interface SandboxCommand{command:string;args:readonly string[];timeoutMs:number} export interface SandboxResult{exitCode:number|null;stdout:string;stderr:string;timedOut:boolean} export interface SandboxRunner{run(command:SandboxCommand):Promise<SandboxResult>} export class DisabledSandboxRunner implements SandboxRunner{async run(_c:SandboxCommand):Promise<SandboxResult>{throw new Error("Sandbox execution is disabled until an isolated runner is configured.")}}
