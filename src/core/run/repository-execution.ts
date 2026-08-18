@@ -2,8 +2,8 @@ import type { RepositoryAdapter } from "../../repository/adapter.js";
 import { buildRepositoryModel } from "../../repository/model-builder.js";
 import type { RepositorySourceProfile } from "../../repository/source-profile.js";
 import type { AuthoringIntent } from "../../mutation/authoring-compiler.js";
-import type { FilePatcherPolicy } from "../../mutation/file-patcher.js";
-import type { MutationCommitter, StagedPatch } from "../../mutation/transaction.js";
+import type { FilePatcherPolicy, StagedPatch } from "../../mutation/file-patcher.js";
+import type { MutationCommitter } from "../../mutation/transaction.js";
 import type { ValidationCommandPlan } from "../../validation/command-plan.js";
 import type { SandboxRunner } from "../../validation/sandbox-runner.js";
 import type { StructuralValidationContext } from "../../validation/structural-validator.js";
@@ -41,7 +41,7 @@ export async function executeNativeRepositoryRun(orchestrator: NativeOrchestrato
   const model = buildRepositoryModel(snapshot, { profile: request.sourceProfile });
   const committer: MutationCommitter = Object.freeze({
     commit: async (staged: StagedPatch) => {
-      const changes = new Map(staged.changes.map(change => [change.path, change.after] as const));
+      const changes = new Map<string, string | null>(staged.changes.map(change => [change.path, change.after] as const));
       const published = await request.adapter.publish({
         repository: run.repository,
         targetRef: request.targetRef,
