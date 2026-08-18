@@ -187,6 +187,7 @@ export function buildScopeLock(request: ScopeLockRequest): ScopeLockResult {
     allow_capability_construction: capabilityConstruction,
     authorized_capabilities: authorizedCapabilities
   };
+  const { schema_version: _projectionSchemaVersion, ...projectionFields } = projection;
 
   return {
     schema_version: SCOPE_LOCK_SCHEMA_VERSION,
@@ -195,7 +196,7 @@ export function buildScopeLock(request: ScopeLockRequest): ScopeLockResult {
     locked: violations.length === 0,
     fingerprint: hash(projection),
     objective_fingerprint: hash(originalUserInstruction),
-    ...projection,
+    ...projectionFields,
     declared_paths: requestDeclaredPaths,
     violations,
     authority: {
