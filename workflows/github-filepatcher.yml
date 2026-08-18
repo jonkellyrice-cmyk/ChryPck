@@ -1,0 +1,77 @@
+name: GitHub FilePatcher
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "dev_scripts/github-filepatcher.json"
+
+concurrency:
+  group: github-filepatcher-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read patch metadata
+        id: patch
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const patch = JSON.parse(fs.readFileSync('dev_scripts/github-filepatcher.json', 'utf8'));
+          const raw = String(patch.id || 'apply').trim();
+          const id = raw.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'apply';
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `id=${id}\n`);
+          NODE
+
+      - name: Validate FilePatcher syntax
+        run: node --check dev_scripts/github-filepatcher.mjs
+
+      - name: Dry-run FilePatcher
+        run: npm run github:patch -- --dry-run
+
+      - name: Apply FilePatcher
+        run: npm run github:patch
+
+      - name: Check for changes
+        id: changes
+        shell: bash
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate diff
+        if: steps.changes.outputs.changed == 'true'
+        run: git diff --check
+
+      - name: Stage patch only
+        if: steps.changes.outputs.changed == 'true'
+        run: git add -A
+
+      - name: Commit verified patch
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --cached --check
+          git commit -m "filepatcher: ${{ steps.patch.outputs.id }}"
+          git push

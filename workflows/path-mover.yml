@@ -1,0 +1,76 @@
+name: Path Mover
+
+on:
+  push:
+    paths:
+      - "dev_scripts/path-mover.json"
+      - "dev_scripts/path-mover.mjs"
+      - ".github/workflows/path-mover.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  move-and-rewrite:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate mover syntax
+        run: node --check dev_scripts/path-mover.mjs
+
+      - name: Apply declared moves and rewrite imports
+        run: node dev_scripts/path-mover.mjs
+
+      - name: Validate changed JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r file; do
+            case "$file" in
+              *.js|*.mjs|*.cjs)
+                if [ -f "$file" ]; then
+                  node --check "$file"
+                fi
+                ;;
+            esac
+          done < <(git diff --name-only --diff-filter=ACMR HEAD)
+
+      - name: Run repository audit
+        run: npm run audit
+
+      - name: Run symbol family audit
+        run: npm run symbol-family-audit
+
+      - name: Run effect atlas
+        run: npm run effect-atlas
+
+      - name: Remove generated audit artifacts
+        shell: bash
+        run: |
+          git restore --worktree -- repo-audit-report.json 2>/dev/null || true
+          rm -f effect-atlas-report.json symbol-family-audit-report.json
+
+      - name: Commit verified relocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No path relocation changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "path-mover: apply declared relocations"
+          git push
