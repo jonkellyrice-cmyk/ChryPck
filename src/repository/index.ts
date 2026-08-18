@@ -1,0 +1,2 @@
+/** Repository indexing entrypoint. */
+export {};
