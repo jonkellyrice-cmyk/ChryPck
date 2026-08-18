@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/scaffold_native_toolchain.py"
+      - "scripts/native-toolchain-scaffold.trigger"
 
 concurrency:
   group: native-toolchain-scaffold-main
@@ -12,12 +13,18 @@ concurrency:
 
 permissions:
   contents: write
+  statuses: write
 
 jobs:
   scaffold:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
       - name: Generate native toolchain scaffold
         run: python3 scripts/scaffold_native_toolchain.py .
       - name: Verify generator is idempotent
@@ -26,6 +33,8 @@ jobs:
           python3 scripts/scaffold_native_toolchain.py .
           git diff -- src test > /tmp/second.diff
           diff -u /tmp/first.diff /tmp/second.diff
+      - name: Typecheck and test generated scaffold
+        run: npm run check
       - name: Stage generated scaffold
         run: git add src test
       - name: Commit generated scaffold
@@ -40,3 +49,25 @@ jobs:
           git diff --cached --check
           git commit -m "Generate native ChryPck toolchain scaffold"
           git push
+      - name: Publish scaffold status
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state="success"
+          description="Native ChryPck scaffold generated and validated"
+          if [ "$JOB_STATUS" != "success" ]; then
+            state="failure"
+            description="Native ChryPck scaffold generation or validation failed"
+          fi
+          curl --fail-with-body -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "https://api.github.com/repos/$REPOSITORY/statuses/$SHA" \
+            -d "$(node -e 'console.log(JSON.stringify({state: process.argv[1], context: \"chrypck/native-scaffold\", description: process.argv[2], target_url: process.argv[3]}))' "$state" "$description" "$RUN_URL")"
