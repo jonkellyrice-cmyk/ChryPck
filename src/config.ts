@@ -33,8 +33,8 @@ function positiveInteger(value: string | undefined, fallback: number, key: strin
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ChryPckConfig {
   const repositories = csv(env.ALLOWED_REPOSITORIES);
   if (repositories.length === 0) throw new Error("ChryPck requires at least one ALLOWED_REPOSITORIES entry.");
-  const defaultTargetRef = String(env.CHRYPCK_DEFAULT_TARGET_REF ?? "main").trim();
-  if (!defaultTargetRef || defaultTargetRef === "HEAD") throw new Error("CHRYPCK_DEFAULT_TARGET_REF must be an explicit mutable branch name.");
+  const defaultTargetRef = String(env.CHRYPCK_DEFAULT_TARGET_REF ?? "").trim() || "main";
+  if (defaultTargetRef === "HEAD") throw new Error("CHRYPCK_DEFAULT_TARGET_REF must be an explicit mutable branch name.");
   return Object.freeze({
     githubToken: requireNonEmpty(env, "GITHUB_TOKEN"),
     githubApiVersion: String(env.GITHUB_API_VERSION ?? "2026-03-10").trim(),
