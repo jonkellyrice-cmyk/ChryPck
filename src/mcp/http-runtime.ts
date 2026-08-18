@@ -71,9 +71,7 @@ async function toolBoundary<T>(operation: () => Promise<T> | T) {
   }
 }
 
-export function buildChryPckMcpServer(nativeService: NativeMcpService): McpServer {
-  const server = new McpServer({ name: "chrypck", version: "1.0.0" });
-
+export function registerChryPckTools(server: McpServer, nativeService: NativeMcpService): void {
   server.registerTool(
     "chrypck_plan",
     {
@@ -122,18 +120,21 @@ export function buildChryPckMcpServer(nativeService: NativeMcpService): McpServe
     },
     async input => toolBoundary(() => nativeService.result(input))
   );
+}
 
+export function buildChryPckMcpServer(nativeService: NativeMcpService): McpServer {
+  const server = new McpServer({ name: "chrypck", version: "1.0.0" });
+  registerChryPckTools(server, nativeService);
   return server;
 }
 
-export interface ChryPckMcpRuntime {
+export interface ChryPckServiceRuntime {
   readonly config: ChryPckConfig;
   readonly projectProfiles: ProjectProfileRegistry;
   readonly nativeService: NativeMcpService;
-  readonly handler: ReturnType<typeof createMcpHandler>;
 }
 
-export function createChryPckMcpRuntime(env: NodeJS.ProcessEnv = process.env): ChryPckMcpRuntime {
+export function createChryPckServiceRuntime(env: NodeJS.ProcessEnv = process.env): ChryPckServiceRuntime {
   const config = loadConfig(env);
   const transport = new GitHubRestTransport(config.githubToken, config.githubApiVersion);
   const repositoryAdapter = new GitHubRepositoryAdapter(transport, {
@@ -147,8 +148,24 @@ export function createChryPckMcpRuntime(env: NodeJS.ProcessEnv = process.env): C
     maxMutationFileBytes: config.maxMutationFileBytes,
     projectProfiles
   });
-  const handler = createMcpHandler(() => buildChryPckMcpServer(nativeService), { responseMode: "json" });
-  return { config, projectProfiles, nativeService, handler };
+  return { config, projectProfiles, nativeService };
+}
+
+let serviceRuntimeSingleton: ChryPckServiceRuntime | null = null;
+
+export function getChryPckServiceRuntime(): ChryPckServiceRuntime {
+  serviceRuntimeSingleton ??= createChryPckServiceRuntime();
+  return serviceRuntimeSingleton;
+}
+
+export interface ChryPckMcpRuntime extends ChryPckServiceRuntime {
+  readonly handler: ReturnType<typeof createMcpHandler>;
+}
+
+export function createChryPckMcpRuntime(env: NodeJS.ProcessEnv = process.env): ChryPckMcpRuntime {
+  const serviceRuntime = createChryPckServiceRuntime(env);
+  const handler = createMcpHandler(() => buildChryPckMcpServer(serviceRuntime.nativeService), { responseMode: "json" });
+  return { ...serviceRuntime, handler };
 }
 
 let runtimeSingleton: ChryPckMcpRuntime | null = null;
@@ -199,7 +216,7 @@ export function evaluateMcpAccess(headers: McpAccessHeaders, config: ChryPckConf
   return null;
 }
 
-export function buildHealthPayload(runtime: ChryPckMcpRuntime) {
+export function buildHealthPayload(runtime: ChryPckServiceRuntime) {
   return {
     ok: true,
     service: "chrypck",
