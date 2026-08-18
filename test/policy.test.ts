@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createScopeLock } from "../src/core/policy/scope-lock.js";
 import {
   ABSTRACTION_VIOLATION,
+  SCOPE_VIOLATION,
   GuardError,
   SourceGrantStore,
   extractGrantedPathsFromLog,
@@ -44,6 +46,24 @@ test("rejects a request that attempts to smuggle direct operations", () => {
   );
 });
 
+test("live request validation rejects Scope Lock path expansion", () => {
+  const request = {
+    ...validRequest(),
+    scope_lock: {
+      ...validRequest().scope_lock,
+      authorized_paths: ["scripts/inside.js"]
+    },
+    policy: {
+      allowed_paths: ["scripts/outside.js"]
+    }
+  };
+
+  assert.throws(
+    () => validateToolchainRequest(request),
+    (error: unknown) => error instanceof GuardError && error.code === SCOPE_VIOLATION
+  );
+});
+
 test("derives source authority from the certified targeted patch surface", () => {
   const log = [
     "2026-08-18T16:50:02.2293437Z Targeted patch surface:",
@@ -75,6 +95,26 @@ test("grant store permits only exact toolchain-granted paths", () => {
 
   assert.throws(
     () => grants.require("owner/repo", "a".repeat(40), "scripts/not-allowed.js"),
+    (error: unknown) => error instanceof GuardError && error.code === ABSTRACTION_VIOLATION
+  );
+});
+
+test("grant issuance cannot broaden the native Scope Lock", () => {
+  const grants = new SourceGrantStore(60_000);
+  const scopeLock = createScopeLock({
+    originalUserInstruction: "Inspect allowed source only.",
+    authorizedDeliverables: ["Inspect allowed source."],
+    authorizedPaths: ["scripts/allowed.js"]
+  });
+
+  assert.throws(
+    () => grants.issue(
+      "owner/repo",
+      "b".repeat(40),
+      ["scripts/not-allowed.js"],
+      "workflow-run:2",
+      scopeLock
+    ),
     (error: unknown) => error instanceof GuardError && error.code === ABSTRACTION_VIOLATION
   );
 });
