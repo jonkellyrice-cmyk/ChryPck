@@ -79,7 +79,10 @@ export function normalizeRepositoryPath(value: string): string {
 function stripLogDecoration(line: string): string {
   return line
     .replace(/\u001B\[[0-?]*[ -\/]*[@-~]/g, "")
-    .replace(/^\d{4}-\d{2}-\d{2}T\S+\s+/, "")
+    // GitHub prefixes each Actions log line with an ISO timestamp followed by
+    // one separator space. Remove only that separator so indentation emitted
+    // by the toolchain remains authoritative structural evidence.
+    .replace(/^\d{4}-\d{2}-\d{2}T\S+ /, "")
     .replace(/^##\[(?:error|warning|notice|debug|group|endgroup)\]\s*/i, "");
 }
 
