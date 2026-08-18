@@ -1,3 +1,0 @@
-Execute the currently approved Domain Decomposer plan.
-Requested: 2026-08-17T00:14:00Z
-Purpose: retry after generic scope parser hardening.

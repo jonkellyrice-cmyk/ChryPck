@@ -1,15 +1,12 @@
-name: Small MCP CI
-
+name: ChryPck CI
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 permissions:
   contents: read
   statuses: write
-
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -32,15 +29,6 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: |
           state="success"
-          description="Small MCP typecheck and policy tests passed"
-          if [ "$JOB_STATUS" != "success" ]; then
-            state="failure"
-            description="Small MCP typecheck or policy tests failed"
-          fi
-          curl --fail-with-body -L \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "https://api.github.com/repos/$REPOSITORY/statuses/$SHA" \
-            -d "$(node -e 'console.log(JSON.stringify({state: process.argv[1], context: \"small-mcp/ci\", description: process.argv[2], target_url: process.argv[3]}))' "$state" "$description" "$RUN_URL")"
+          description="ChryPck typecheck and tests passed"
+          if [ "$JOB_STATUS" != "success" ]; then state="failure"; description="ChryPck typecheck or tests failed"; fi
+          curl --fail-with-body -L -X POST -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GH_TOKEN" -H "X-GitHub-Api-Version: 2026-03-10" "https://api.github.com/repos/$REPOSITORY/statuses/$SHA" -d "$(node -e 'console.log(JSON.stringify({state: process.argv[1], context: \"chrypck/ci\", description: process.argv[2], target_url: process.argv[3]}))' "$state" "$description" "$RUN_URL")"

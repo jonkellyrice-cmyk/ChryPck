@@ -1,106 +1,85 @@
-# Small MCP
+# ChryPck
 
-Small MCP is a deliberately narrow GitHub policy proxy for AI-assisted repository work.
+ChryPck is a policy-enforced MCP capability proxy for governed repository development.
 
-Its purpose is not to recreate a general GitHub integration. It exposes only the minimum GitHub-backed capabilities needed to drive a repository's existing deterministic development toolchain while making direct repository bypass structurally unavailable.
+Its central rule is: **author intent narrowly, execute deterministically, validate broadly, and fail closed rather than guess.** ChryPck is designed to be the model's only repository capability for a governed workflow; an unrestricted GitHub/filesystem/shell tool must not be exposed alongside it if hard enforcement is required.
 
-## Security model
+## Repository visibility model
 
-The intended deployment model is:
+ChryPck deliberately separates what the service can know from what the LLM can see:
 
 ```text
-ChatGPT
-   |
-   v
-Small MCP
-   |
-   +-- submit planning-only toolchain request
-   +-- inspect canonical toolchain telemetry/evidence
-   +-- read an exact path granted by toolchain evidence
-   |
-   v
-GitHub API
-   |
-   v
-Repository toolchain -> FilePatcher -> validation
+immutable repository snapshot
+        ↓
+exhaustive Repository Model          (internal; not model-visible)
+        ↓
+diagnostic projections/maps          (compressed/lossy; model-visible)
+        ↓
+Patch Corridor
+        ↓
+certified Context Pack                (bounded exact-source expansion)
+        ↓
+LLM-authored bounded intent
+        ↓
+Change Propagation → validation → atomic publication
 ```
 
-For the boundary to be meaningful, the ordinary unrestricted GitHub app must not be available for the governed repository workflow. Small MCP cannot intercept another app's tools; it is meant to be the only GitHub capability exposed for this workflow.
+The model does not receive arbitrary repository search/list/read primitives. If compressed evidence is insufficient, ChryPck returns a capability/abstraction gap or produces a newly justified certified context expansion; the model does not fall back to repository exploration.
 
-## Exposed MCP tools
+Model-visible diagnostic surfaces include dependency graph/watershed, symbol families, effect atlas, integration surfaces, runtime signals, state namespaces, native-contract evidence, Patch Corridor, Context Pack, runtime probes, and Change Propagation results.
 
-Small MCP intentionally exposes only three tools:
+## Model-facing MCP surface
 
-1. `toolchain_submit_request`
-   - Writes only the configured toolchain request file (default: `dev_scripts/github-filepatcher.json`).
-   - Requires a Scope Lock-bearing schema-v2 request.
-   - Requires `operations` to be empty so the model cannot smuggle direct FilePatcher mutations through the gateway. Patch authoring remains the repository toolchain's job.
-   - Cannot write any other repository path.
+Exactly four MCP tools are exposed:
 
-2. `toolchain_inspect_run`
-   - Reads canonical commit status and the configured toolchain workflow run.
-   - Returns bounded failure evidence rather than raw unrestricted workflow logs.
-   - Extracts source-access grants only from toolchain-produced grant markers or the certified `Targeted patch surface` section.
-   - Stores those grants server-side with a short TTL.
+- `chrypck_plan` — snapshot internally, build the exhaustive model, run diagnostics, certify the Patch Corridor, and optionally produce a review-required architecture plan.
+- `chrypck_context` — return only the certified Context Pack (optionally one server-issued segment).
+- `chrypck_execute` — execute typed edits or an explicitly approved server-issued path-move plan through native mutation, propagation, validation, and atomic publication.
+- `chrypck_result` — return bounded run state, telemetry, validation/propagation outcome, and terminal evidence.
 
-3. `toolchain_read_granted_file`
-   - Reads one exact repository path at the exact request commit SHA.
-   - Succeeds only if `toolchain_inspect_run` previously derived a still-valid grant for that exact `(repository, commit, path)` tuple.
-   - Provides no search, listing, guessed reads, moving refs, or arbitrary fetches.
+There is no model-facing GitHub search, arbitrary file read, arbitrary GitHub write, shell, workflow-log reader, or workflow dispatcher.
 
-There is deliberately no generic `search`, `fetch_file`, `update_file`, commit, branch, PR, issue, workflow dispatch, or shell tool.
+## Deliberate architecture operations
 
-## Why the grant is server-side
+The Domain Decomposer and Path Mover remain intentionally less automatic than ordinary patch execution.
 
-The model is not allowed to manufacture its own source-access grant. `toolchain_inspect_run` derives a grant from GitHub-hosted output produced by the configured canonical workflow and records it in process memory. `toolchain_read_granted_file` consults that server-side record.
+`chrypck_plan` can request `architecture.kind = "decompose"` to receive a compressed decomposition proposal derived from the hidden Repository Model. The proposal starts unapproved and authorizes only its proposed new target paths; the reviewed extraction is then supplied as ordinary bounded authoring intent.
 
-A later version should replace the legacy `Targeted patch surface` parser with an explicit signed/machine-readable Abstraction Lock grant emitted by the toolchain.
+`architecture.kind = "move"` produces a server-issued move plan plus dependency-derived import rewrites. After review, `chrypck_execute` may approve that exact `plan_id`; ChryPck executes the already-computed plan without recomputing or broadening it.
 
-## Current scope and future direction
+## Native execution spine
 
-Version 0.1 is intentionally compatible with the existing Frame Conn model: the repository still owns Scope Lock, Abstraction Lock, diagnostics, Patch Corridor, Context Pack, staging, propagation, FilePatcher, and validation.
+```text
+plan
+ → Scope Lock + Abstraction Lock
+ → immutable snapshot
+ → shared Repository Model
+ → diagnostics
+ → Patch Corridor + Context Pack
+ → optional deliberate architecture plan
+ → typed mutation staging
+ → Change Propagation
+ → structural + isolated project validation
+ → compare-and-swap repository publication
+ → native telemetry/result
+```
 
-The longer-term direction is to move repository-independent versions of those policy and orchestration capabilities into Small MCP itself. At that point a repository would supply only its project-specific diagnostics/adapters while Small MCP provides the common governed execution spine.
+GitHub is an internal transport adapter with only snapshot/publish semantics at the native execution boundary.
 
-## Requirements
+## Project profiles
 
-- Node.js 22+
-- A GitHub token restricted to the repositories Small MCP is allowed to govern
-- GitHub permissions sufficient for:
-  - Contents: read/write (only the configured request file is written by Small MCP)
-  - Commit statuses: read
-  - Actions: read
-- A remote MCP deployment or a supported secure MCP tunnel for ChatGPT
-
-Small MCP uses the current MCP TypeScript SDK's Streamable HTTP server model.
+The core is repository-agnostic. Project profiles supply source-profile rules, optional analyzers, validation policy/commands, runtime-probe planning, and native-contract providers. A Frame Conn profile is included alongside the generic fallback profile.
 
 ## Configuration
 
-Copy `.env.example` into your deployment environment and provide secrets through the deployment platform rather than committing them.
-
-Important variables:
+Required deployment values:
 
 ```text
 GITHUB_TOKEN
 ALLOWED_REPOSITORIES
-TOOLCHAIN_REQUEST_PATH
-TOOLCHAIN_WORKFLOW_NAME
-TOOLCHAIN_REQUIRED_STATUS_CONTEXTS
 ```
 
-`ALLOWED_REPOSITORIES` is a comma-separated allowlist such as:
-
-```text
-jonkellyrice-cmyk/Lancer-Frame-Conn
-```
-
-The request path defaults to:
-
-```text
-dev_scripts/github-filepatcher.json
-```
-
-The Frame Conn workflow defaults are represented in `.env.example`, but every value is configurable so the server is not permanently coupled to Frame Conn.
+Common optional values are documented in `.env.example`, including the default target branch, repository/file bounds, HTTP binding, public host/origin constraints, and bearer authentication.
 
 ## Development
 
@@ -110,20 +89,11 @@ npm run check
 npm run dev
 ```
 
-The MCP endpoint is:
+Endpoints:
 
 ```text
 POST /mcp
+GET  /healthz
 ```
 
-A simple health endpoint is available at:
-
-```text
-GET /healthz
-```
-
-## Production notes
-
-Do not expose an unauthenticated public deployment. The included server can enforce a static bearer token for development/private proxy use with `MCP_BEARER_TOKEN`; a production ChatGPT deployment should use an authentication mechanism supported by the hosting and ChatGPT MCP configuration, with OAuth preferred when appropriate.
-
-The in-memory grant store is intentionally simple for v0.1. A multi-instance deployment should replace it with a shared store or keep the service at one instance until grants become signed, self-contained toolchain artifacts.
+For a ChatGPT-connected deployment, expose `/mcp` through a stable HTTPS endpoint and configure authentication appropriate to that deployment. Do not expose a credentialed ChryPck instance publicly without authentication.

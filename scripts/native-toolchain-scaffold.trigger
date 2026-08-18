@@ -1,1 +1,0 @@
-validate scaffold v1
