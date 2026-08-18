@@ -1,1 +1,4 @@
-import type { Analyzer } from "./analyzer.js"; export const runtimeSignalsAnalyzer:Analyzer={name:"runtime-signals",analyze(){return{analyzer:"runtime-signals",findings:[]};}};
+import type { RepositoryModel } from "../repository/model.js";
+import { freezeResult, type Analyzer, type DiagnosticFinding } from "./analyzer.js";
+const SIGNAL_KINDS=new Set(["hooks","chat-output","notifications","application-lifecycle","native-execution"]);
+export const runtimeSignalsAnalyzer:Analyzer<DiagnosticFinding>={name:"runtime-signal-map",analyze(model:RepositoryModel){const signals=model.effects.filter(e=>SIGNAL_KINDS.has(e.kind));const findings=signals.map(signal=>({code:"RUNTIME_SIGNAL",severity:"info" as const,summary:`${signal.kind} signal at ${signal.file}:${signal.line}.`,evidence:{kind:signal.kind,file:signal.file,line:signal.line,symbol:signal.symbol,detail:signal.detail}}));return freezeResult(this.name,{signals:signals.length,kinds:new Set(signals.map(s=>s.kind)).size,files:new Set(signals.map(s=>s.file)).size},findings);}};
