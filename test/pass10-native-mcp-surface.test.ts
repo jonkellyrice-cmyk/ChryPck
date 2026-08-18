@@ -4,6 +4,7 @@ import { NativeMcpService } from "../src/mcp/service.js";
 import type { RepositoryAdapter, RepositoryPublishRequest } from "../src/repository/adapter.js";
 import { createSnapshot, type RepositorySnapshot } from "../src/repository/snapshot.js";
 import { CHRYPCK_TOOL_NAMES } from "../src/mcp/tools.js";
+import { createBuiltinProjectProfileRegistry } from "../src/project/builtin-profiles.js";
 
 class MemoryRepository implements RepositoryAdapter {
   sha = "a".repeat(40);
@@ -22,10 +23,19 @@ class MemoryRepository implements RepositoryAdapter {
   }
 }
 
+function serviceOptions() {
+  return {
+    allowedRepositories: new Set(["owner/repo"]),
+    defaultTargetRef: "main",
+    maxMutationFileBytes: 4096,
+    projectProfiles: createBuiltinProjectProfileRegistry()
+  };
+}
+
 test("live native service exposes plan/context/execute/result semantics", async () => {
   assert.deepEqual([...CHRYPCK_TOOL_NAMES], ["chrypck_plan", "chrypck_context", "chrypck_execute", "chrypck_result"]);
   const repository = new MemoryRepository();
-  const service = new NativeMcpService(repository, { allowedRepositories: new Set(["owner/repo"]), defaultTargetRef: "main", maxMutationFileBytes: 4096 });
+  const service = new NativeMcpService(repository, serviceOptions());
   const plan = await service.plan({ repository: "owner/repo", objective: "provider", base_ref: "main" });
   assert.equal(plan.state, "READY");
   assert.equal(plan.context_available, true);
@@ -39,6 +49,6 @@ test("live native service exposes plan/context/execute/result semantics", async 
 });
 
 test("native service rejects non-allowlisted repositories", async () => {
-  const service = new NativeMcpService(new MemoryRepository(), { allowedRepositories: new Set(["owner/repo"]), defaultTargetRef: "main", maxMutationFileBytes: 4096 });
+  const service = new NativeMcpService(new MemoryRepository(), serviceOptions());
   await assert.rejects(() => service.plan({ repository: "other/repo", objective: "provider" }), /not allowed/);
 });
