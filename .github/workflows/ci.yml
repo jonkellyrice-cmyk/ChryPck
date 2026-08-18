@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   check:
@@ -21,3 +22,25 @@ jobs:
         run: npm install
       - name: Typecheck and test
         run: npm run check
+      - name: Publish compact CI status
+        if: ${{ always() && github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state="success"
+          description="Small MCP typecheck and policy tests passed"
+          if [ "$JOB_STATUS" != "success" ]; then
+            state="failure"
+            description="Small MCP typecheck or policy tests failed"
+          fi
+          curl --fail-with-body -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "https://api.github.com/repos/$REPOSITORY/statuses/$SHA" \
+            -d "$(node -e 'console.log(JSON.stringify({state: process.argv[1], context: \"small-mcp/ci\", description: process.argv[2], target_url: process.argv[3]}))' "$state" "$description" "$RUN_URL")"
