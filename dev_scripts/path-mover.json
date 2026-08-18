@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "promote-system-bridge-feature-to-scripts-root",
+  "enabled": false,
+  "description": "Move the shared system-bridge feature composition file out of its now-redundant one-file folder and into the scripts application architecture root, rewriting imports automatically.",
+  "moves": [
+    {
+      "from": "scripts/feature_system_bridge/system-bridge-feature.js",
+      "to": "scripts/system-bridge-feature.js"
+    }
+  ],
+  "last_applied_at": "2026-08-16T23:04:33.443Z"
+}

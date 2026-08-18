@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "tool": "domain-decomposer",
+  "tool_version": "1.0.0",
+  "generated_at": "2026-08-17T00:20:00.000Z",
+  "approved": false,
+  "policy_file": "dev_scripts/domain-decomposer-policy.json",
+  "behavior_change_allowed": false,
+  "review": {
+    "status": "neutral",
+    "summary": "No decomposition is currently approved for execution."
+  },
+  "candidates": [],
+  "retained_files": []
+}

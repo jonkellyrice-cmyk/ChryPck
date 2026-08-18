@@ -1,0 +1,465 @@
+/**
+ * ============================================================
+ * FILE PATH / NAME
+ * ============================================================
+ *
+ * styles/ui-registry.css
+ */
+
+/**
+ * ============================================================
+ * FRAME HELM UI REGISTRY
+ * ============================================================
+ *
+ * ROLE:
+ *   Provides the single stylesheet aggregation boundary through
+ *   which registered Frame Helm feature UI styles enter the
+ *   application.
+ *
+ * PURPOSE:
+ *   Establish a stable import spine for feature-owned CSS as
+ *   Frame Helm is progressively decomposed into independent
+ *   feature domains.
+ *
+ * IMPORTS:
+ *   - ui-contract.css
+ *   - ui-sensors.css
+ *   - ui-actions.css
+ *   - ui-turn.css
+ *   - ui-movement.css
+ *   - ui-application.css
+ *   - additional registered feature styles as they are extracted
+ *
+ * OWNS:
+ *   - Shared UI contract import
+ *   - Feature-style registration order
+ *   - Feature-style aggregation boundary
+ *   - Cross-feature stylesheet load ordering
+ *
+ * DOES NOT OWN:
+ *   - Shared visual primitives
+ *   - Shared design tokens
+ *   - Public UI contract definitions
+ *   - Feature-specific styling
+ *   - Primary Frame Helm composition
+ *   - Responsive feature behavior
+ *   - JavaScript feature registration
+ *   - Runtime stylesheet injection
+ *
+ * REGISTRATION MODEL:
+ *
+ *   ui-dsl.css
+ *       ↓
+ *   ui-contract.css
+ *       ↓
+ *   ui-registry.css
+ *       ├── ui-sensors.css
+ *       ├── ui-actions.css
+ *       ├── ui-turn.css
+ *       ├── ui-movement.css
+ *       ├── ui-application.css
+ *       └── future registered feature styles
+ *       ↓
+ *   ui-orchestrator.css
+ *
+ * FEATURE REGISTRATION STATUS:
+ *
+ *   Registered core feature styles:
+ *
+ *     - Sensors
+ *         stylesheet:
+ *           ui-sensors.css
+ *
+ *         runtime feature:
+ *           scripts/sensors-feature.js
+ *
+ *         UI runtime feature:
+ *           styles/ui-sensors.js
+ *
+ *
+ *     - Actions
+ *         stylesheet:
+ *           ui-actions.css
+ *
+ *         runtime feature:
+ *           scripts/actions-feature.js
+ *
+ *         UI runtime feature:
+ *           none currently required
+ *
+ *
+ *     - Turn
+ *         stylesheet:
+ *           ui-turn.css
+ *
+ *         runtime feature:
+ *           scripts/turn-feature.js
+ *
+ *         UI runtime feature:
+ *           styles/ui-turn.js
+ *
+ *         owns:
+ *           - turn-budget presentation
+ *           - Protocol presentation
+ *           - Reaction presentation
+ *           - Overcharge presentation
+ *           - committed-plan presentation
+ *           - Turn semantic state presentation
+ *           - Turn-specific responsive behavior
+ *
+ *
+ *     - Movement
+ *         stylesheet:
+ *           ui-movement.css
+ *
+ *         runtime feature:
+ *           scripts/movement-feature.js
+ *
+ *         UI runtime feature:
+ *           styles/ui-movement.js
+ *
+ *         owns:
+ *           - Movement panel presentation
+ *           - Movement speed-setup presentation
+ *           - Movement tracker presentation
+ *           - Movement-mode presentation
+ *           - Movement budget presentation
+ *           - Movement commitment presentation
+ *           - Movement controls
+ *           - Movement ledger presentation
+ *           - standard-movement pool presentation
+ *           - Boost movement presentation
+ *           - Overcharge Boost movement presentation
+ *           - tracked-distance presentation
+ *           - excess-movement presentation
+ *           - Movement segment presentation
+ *           - elevation-movement presentation
+ *           - Movement semantic state presentation
+ *           - Movement-specific responsive behavior
+ *
+ *
+ *     - Application
+ *         stylesheet:
+ *           ui-application.css
+ *
+ *         runtime feature:
+ *           styles/ui-application.js
+ *
+ *         owns:
+ *           - Foundry application-window presentation
+ *           - primary Frame Helm shell presentation
+ *           - application-header presentation
+ *           - application-specific responsive window behavior
+ *
+ *
+ *   Future feature styles will be registered here as their
+ *   corresponding runtime domains are extracted.
+ *
+ * DESIGN CONTRACT:
+ *
+ *   This file is an aggregation boundary, not a styling layer.
+ *
+ *   Feature CSS imported here:
+ *
+ *     - MUST depend only on the public UI contract and lower
+ *       layers unless an explicitly documented dependency exists
+ *
+ *     - MUST NOT depend on selectors owned by unrelated features
+ *
+ *     - SHOULD scope feature-specific selectors beneath the
+ *       feature's public UI root where practical
+ *
+ *     - MUST NOT redefine the public UI contract
+ *
+ *     - MUST NOT redefine shared DSL primitives
+ *
+ *     - SHOULD contain only presentation owned by that feature
+ *
+ * IMPORT ORDER:
+ *
+ *   Import order is architectural.
+ *
+ *   Lower-level shared contracts are loaded first.
+ *
+ *   Core feature styles are loaded afterward in explicit
+ *   registration order.
+ *
+ *   Domain-oriented feature presentation is loaded before the
+ *   Application stylesheet.
+ *
+ *   Turn is loaded before Movement because Movement currently
+ *   consumes movement-accounting state that remains temporarily
+ *   owned by the Turn domain.
+ *
+ *   This ordering does not create a CSS dependency between the
+ *   two files. It merely keeps the stylesheet declaration order
+ *   aligned with the current domain architecture.
+ *
+ *   Application-owned styling is loaded after lower-level feature
+ *   styles because it owns the shell in which those feature
+ *   surfaces are presented.
+ *
+ *   Extension feature styles, if introduced, are loaded after
+ *   core feature styles unless an explicit dependency requires
+ *   otherwise.
+ *
+ *   ui-orchestrator.css is loaded above this registry and remains
+ *   responsible for final cross-feature composition and
+ *   application-level integration.
+ *
+ * REGISTRY POLICY:
+ *
+ *   A stylesheet existing in the styles directory does not make
+ *   it active.
+ *
+ *   A feature becomes part of the Frame Helm UI style graph only
+ *   when its stylesheet is explicitly imported through this
+ *   registry.
+ *
+ *   This mirrors the executable JavaScript composition graph:
+ *
+ *     feature-contract.js
+ *         defines what executable features may plug in
+ *
+ *     feature-registry.js
+ *         determines which runtime/domain features participate
+ *
+ *     ui-registry.js
+ *         determines which executable UI features participate
+ *
+ *     ui-contract.css
+ *         defines how feature UI styling may participate
+ *
+ *     ui-registry.css
+ *         determines which feature UI styles participate
+ *
+ * IMPORTANT:
+ *
+ *   JavaScript UI feature modules such as:
+ *
+ *     - ui-sensors.js
+ *     - ui-turn.js
+ *     - ui-movement.js
+ *     - ui-application.js
+ *
+ *   are not imported through this stylesheet.
+ *
+ *   Their JavaScript dependency and registration path remains
+ *   part of the executable JavaScript feature-composition graph.
+ *
+ *   Executable UI features are composed through:
+ *
+ *     styles/ui-registry.js
+ *
+ *   and enter the wider runtime feature graph through:
+ *
+ *     scripts/feature-registry.js
+ *
+ *   A feature stylesheet does not inherently require a companion
+ *   JavaScript UI module.
+ *
+ *   For example:
+ *
+ *     - Sensors requires ui-sensors.js because its visual
+ *       implementation includes PIXI/canvas construction.
+ *
+ *     - Actions currently requires only ui-actions.css because
+ *       its extracted UI ownership is stylesheet-based.
+ *
+ *     - Turn requires ui-turn.js because authoritative Turn state
+ *       is adapted into explicit presentation models and semantic
+ *       DOM state before being consumed by the Application UI.
+ *
+ *     - Movement requires ui-movement.js because physical
+ *       Movement integration and authoritative movement-accounting
+ *       state are adapted into explicit Movement presentation
+ *       models and semantic DOM state.
+ *
+ *     - Application requires ui-application.js because it owns
+ *       the Foundry Application class, application instance, and
+ *       application-window lifecycle in addition to its CSS
+ *       presentation.
+ */
+
+
+/* ============================================================
+   UI Registry -- Public contract
+   ============================================================ */
+
+@import "./ui-contract.css";
+
+
+/* ============================================================
+   UI Registry -- Registered core feature styles
+   ============================================================ */
+
+/**
+ * Sensors
+ *
+ * Owns presentation values and stylesheet concerns belonging to
+ * the Sensors feature, including the values consumed by its PIXI
+ * UI construction module.
+ */
+@import "./ui-sensors.css";
+
+
+/**
+ * Actions
+ *
+ * Owns generic action-catalog and action-menu presentation
+ * belonging to the Actions feature.
+ *
+ * More specialized presentation for independently-owned action
+ * subdomains remains outside this feature.
+ *
+ * Turn-owned Overcharge and committed-plan presentation no longer
+ * belong to Actions presentation.
+ *
+ * Movement-owned movement-mode, movement-budget, movement-ledger,
+ * and movement-state presentation no longer belong to Actions
+ * presentation.
+ */
+@import "./ui-actions.css";
+
+
+/**
+ * Turn
+ *
+ * Owns presentation belonging specifically to the Turn feature
+ * and its executable presentation adapter.
+ *
+ * This includes:
+ *
+ *   - turn-budget presentation
+ *   - quick/full budget state
+ *   - Protocol state
+ *   - Reaction state
+ *   - Overcharge state
+ *   - committed-plan presentation
+ *   - committed-action execution state
+ *   - Turn semantic classes/data states
+ *   - Turn-specific responsive behavior
+ *
+ * Authoritative gameplay state remains owned by:
+ *
+ *   scripts/turn-feature.js
+ *
+ * Executable Turn presentation modeling is owned by:
+ *
+ *   styles/ui-turn.js
+ */
+@import "./ui-turn.css";
+
+
+/**
+ * Movement
+ *
+ * Owns presentation belonging specifically to the Movement
+ * feature and its executable presentation adapter.
+ *
+ * This includes:
+ *
+ *   - movement panel presentation
+ *   - movement speed setup
+ *   - movement tracker
+ *   - movement modes
+ *   - movement budget state
+ *   - movement summary
+ *   - movement controls
+ *   - movement commitment state
+ *   - movement ledger
+ *   - standard movement usage
+ *   - Boost movement usage
+ *   - Overcharge Boost movement usage
+ *   - total tracked movement
+ *   - excess movement
+ *   - movement segments
+ *   - elevation movement presentation
+ *   - Movement semantic classes/data states
+ *   - Movement-specific responsive behavior
+ *
+ * Physical Foundry movement integration is owned by:
+ *
+ *   scripts/movement-feature.js
+ *
+ * Executable Movement presentation modeling is owned by:
+ *
+ *   styles/ui-movement.js
+ *
+ * Movement accounting remains transitionally represented by
+ * Turn state until that state ownership is migrated into the
+ * Movement feature.
+ */
+@import "./ui-movement.css";
+
+
+/**
+ * Application
+ *
+ * Owns presentation belonging specifically to the primary Frame
+ * Helm Foundry Application and application shell.
+ *
+ * This includes:
+ *
+ *   - Foundry application window
+ *   - Foundry window header
+ *   - window controls
+ *   - window content surface
+ *   - resize/minimized presentation
+ *   - Frame Helm shell
+ *   - application header
+ *   - application eyebrow
+ *   - window hint
+ *   - application-window-only responsive behavior
+ *
+ * Cross-feature layout remains the responsibility of
+ * ui-orchestrator.css.
+ */
+@import "./ui-application.css";
+
+
+/**
+ * Future core feature imports belong below in deliberate
+ * dependency/load order.
+ *
+ * Examples:
+ *
+ * @import "./ui-action-execution.css";
+ * @import "./ui-telemetry.css";
+ */
+
+
+/* ============================================================
+   UI Registry -- Registered extension feature styles
+   ============================================================ */
+
+/**
+ * Reserved for independently pluggable or optional feature
+ * packages if Frame Helm later distinguishes core features from
+ * extensions.
+ *
+ * No extension styles are registered yet.
+ *
+ * Examples:
+ *
+ * @import "./ui-targeting.css";
+ * @import "./ui-tactical-overlay.css";
+ */
+
+
+/* ============================================================
+   UI Registry -- Integration overrides
+   ============================================================ */
+
+/**
+ * Reserved for the rare case where two registered feature UI
+ * packages require an explicitly owned integration rule.
+ *
+ * Prefer putting styling inside the owning feature whenever
+ * possible.
+ *
+ * Cross-feature rules should not be added here merely for
+ * convenience.
+ *
+ * No integration overrides are currently registered.
+ */

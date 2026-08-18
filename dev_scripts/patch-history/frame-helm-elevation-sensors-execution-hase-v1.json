@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "patch_id": "frame-helm-elevation-sensors-execution-hase-v1",
+  "patch_name": "Add elevation movement, sensor contacts, committed execution, and HASE rolls",
+  "patch_file": "C:\\Users\\ricej\\Desktop\\MDV_work\\Lancer-Frame-Helm\\dev_scripts\\filepatcher.json",
+  "applied_at": "2026-07-18T02:46:48.543281+00:00",
+  "repository_root": "C:\\Users\\ricej\\Desktop\\MDV_work\\Lancer-Frame-Helm",
+  "git_head": "8069924e28b1acb9ef970bcd19cccca82eac3a47",
+  "backup_directory": "C:\\Users\\ricej\\Desktop\\MDV_work\\Lancer-Frame-Helm\\dev_scripts\\backups\\2026-07-18T02-46-48.532909Z-frame-helm-elevation-sensors-execution-hase-v1",
+  "created": [],
+  "modified": [
+    "scripts/lancer-frame-helm.js"
+  ],
+  "removed": [],
+  "files": [
+    {
+      "file": "scripts/lancer-frame-helm.js",
+      "original_exists": true,
+      "result_exists": true,
+      "original_sha256": "491f12ff9b1dbc6a0073ac05c78d28eec508f33ad3e9532a1d1044652e1f02f6",
+      "result_sha256": "bb0e67801b5328e6135bb41883a2a56beb5707d80f33f49313905a9f8e60cc23",
+      "original_bytes": 121780,
+      "result_bytes": 142148
+    }
+  ],
+  "validation_commands": []
+}

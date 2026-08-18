@@ -1,0 +1,9 @@
+{
+  "schema_version": 2,
+  "id": "ready",
+  "name": "Ready",
+  "description": "Neutral no-op placeholder for the local Python FilePatcher. Replace this document with the next local patch specification when needed.",
+  "backup": true,
+  "allow_noop": true,
+  "operations": []
+}

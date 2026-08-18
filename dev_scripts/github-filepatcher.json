@@ -1,0 +1,9 @@
+{
+  "schema_version": 2,
+  "id": "ready",
+  "description": "Neutral no-op state after development roadmap current-state and Foundry tactical-tools update.",
+  "policy": {
+    "max_files_changed": 1
+  },
+  "operations": []
+}
