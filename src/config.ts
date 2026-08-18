@@ -13,6 +13,19 @@ export interface ChryPckConfig {
   readonly maxMutationFileBytes: number;
 }
 
+class RepositoryAllowlist extends Set<string> {
+  readonly #wildcard: boolean;
+
+  constructor(entries: readonly string[]) {
+    super(entries);
+    this.#wildcard = super.has("*");
+  }
+
+  override has(value: string): boolean {
+    return this.#wildcard || super.has(value);
+  }
+}
+
 function requireNonEmpty(env: NodeJS.ProcessEnv, key: string): string {
   const value = String(env[key] ?? "").trim();
   if (!value) throw new Error(`ChryPck requires ${key}.`);
@@ -38,7 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ChryPckConfig 
   return Object.freeze({
     githubToken: requireNonEmpty(env, "GITHUB_TOKEN"),
     githubApiVersion: String(env.GITHUB_API_VERSION ?? "2026-03-10").trim(),
-    allowedRepositories: new Set(repositories),
+    allowedRepositories: new RepositoryAllowlist(repositories),
     defaultTargetRef,
     host: String(env.HOST ?? "127.0.0.1").trim(),
     port: positiveInteger(env.PORT, 3000, "PORT"),
