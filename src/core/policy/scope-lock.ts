@@ -76,7 +76,9 @@ function stable(value: unknown): unknown {
 }
 
 function hash(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(stable(value)), "utf8").digest("hex");
+  const serialized = JSON.stringify(stable(value));
+  if (serialized === undefined) throw new TypeError("Scope Lock fingerprint input must be JSON-serializable.");
+  return createHash("sha256").update(serialized, "utf8").digest("hex");
 }
 
 function strings(value: unknown): string[] {
