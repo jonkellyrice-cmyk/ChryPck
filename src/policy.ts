@@ -1,12 +1,31 @@
 import path from "node:path";
 import * as z from "zod/v4";
 
-export const ABSTRACTION_VIOLATION = "ABSTRACTION_VIOLATION";
-export const ABSTRACTION_GAP = "ABSTRACTION_GAP";
+import {
+  ABSTRACTION_OUTCOMES,
+  createDefaultAbstractionLock,
+  createSourceAccessGrant,
+  type SourceAccessGrant as NativeSourceAccessGrant
+} from "./core/policy/abstraction-lock.js";
+import { PolicyError } from "./core/policy/errors.js";
+import {
+  assertScopeLock,
+  type ScopeLock,
+  type ScopeLockResult
+} from "./core/policy/scope-lock.js";
+
+export const ABSTRACTION_VIOLATION = ABSTRACTION_OUTCOMES.VIOLATION;
+export const ABSTRACTION_GAP = ABSTRACTION_OUTCOMES.GAP;
+export const SCOPE_VIOLATION = "SCOPE_VIOLATION" as const;
+
+export { assertScopeLock } from "./core/policy/scope-lock.js";
+export type { ScopeLock } from "./core/policy/scope-lock.js";
+
+export type GuardErrorCode = typeof ABSTRACTION_VIOLATION | typeof ABSTRACTION_GAP | typeof SCOPE_VIOLATION;
 
 export class GuardError extends Error {
   constructor(
-    public readonly code: typeof ABSTRACTION_VIOLATION | typeof ABSTRACTION_GAP,
+    public readonly code: GuardErrorCode,
     message: string,
     public readonly details: Record<string, unknown> = {}
   ) {
@@ -15,26 +34,24 @@ export class GuardError extends Error {
   }
 }
 
-const scopeLockSchema = z.object({
-  schema_version: z.number().int().positive(),
-  lock_id: z.string().trim().min(1),
-  original_user_instruction: z.string().trim().min(1),
-  authorized_deliverables: z.array(z.string().trim().min(1)).min(1),
-  authorized_paths: z.array(z.string()).default([]),
-  forbidden_expansions: z.array(z.string()).default([]),
-  allow_capability_construction: z.boolean(),
-  authorized_capabilities: z.array(z.string()).default([])
-}).passthrough();
-
 const toolchainRequestSchema = z.object({
   schema_version: z.literal(2),
   id: z.string().trim().min(1),
   planning_goal: z.string().trim().min(1),
-  scope_lock: scopeLockSchema,
+  scope_lock: z.record(z.string(), z.unknown()),
   operations: z.array(z.unknown()).length(0, "Small MCP only accepts planning-only requests with operations: [].")
 }).passthrough();
 
 export type ToolchainRequest = z.infer<typeof toolchainRequestSchema>;
+
+function mapPolicyError(error: PolicyError): GuardError {
+  const code: GuardErrorCode = error.code === SCOPE_VIOLATION
+    ? SCOPE_VIOLATION
+    : error.code === ABSTRACTION_GAP
+      ? ABSTRACTION_GAP
+      : ABSTRACTION_VIOLATION;
+  return new GuardError(code, error.message, { ...error.details, nativePolicyCode: error.code });
+}
 
 export function validateToolchainRequest(value: unknown): ToolchainRequest {
   const parsed = toolchainRequestSchema.safeParse(value);
@@ -45,6 +62,15 @@ export function validateToolchainRequest(value: unknown): ToolchainRequest {
       { issues: parsed.error.issues.map(issue => ({ path: issue.path.join("."), message: issue.message })) }
     );
   }
+
+  try {
+    const scopeLock = assertScopeLock(parsed.data as Record<string, any>);
+    createDefaultAbstractionLock(scopeLock);
+  } catch (error) {
+    if (error instanceof PolicyError) throw mapPolicyError(error);
+    throw error;
+  }
+
   return parsed.data;
 }
 
@@ -79,9 +105,6 @@ export function normalizeRepositoryPath(value: string): string {
 function stripLogDecoration(line: string): string {
   return line
     .replace(/\u001B\[[0-?]*[ -\/]*[@-~]/g, "")
-    // GitHub prefixes each Actions log line with an ISO timestamp followed by
-    // one separator space. Remove only that separator so indentation emitted
-    // by the toolchain remains authoritative structural evidence.
     .replace(/^\d{4}-\d{2}-\d{2}T\S+ /, "")
     .replace(/^##\[(?:error|warning|notice|debug|group|endgroup)\]\s*/i, "");
 }
@@ -162,6 +185,7 @@ export interface SourceGrant {
   evidence: string;
   issuedAt: number;
   expiresAt: number;
+  nativeGrant: NativeSourceAccessGrant;
 }
 
 export class SourceGrantStore {
@@ -173,18 +197,37 @@ export class SourceGrantStore {
     return `${repository}@${requestCommitSha}`;
   }
 
-  issue(repository: string, requestCommitSha: string, paths: readonly string[], evidence: string): SourceGrant | null {
-    const normalized = new Set(paths.map(normalizeRepositoryPath));
-    if (normalized.size === 0) return null;
+  issue(
+    repository: string,
+    requestCommitSha: string,
+    paths: readonly string[],
+    evidence: string,
+    scopeLock?: ScopeLockResult | null
+  ): SourceGrant | null {
+    const normalizedPaths = [...new Set(paths.map(normalizeRepositoryPath))].sort();
+    if (normalizedPaths.length === 0) return null;
+
+    const native = createSourceAccessGrant({
+      paths: normalizedPaths,
+      issuedBy: "chrypck-source-grant-store",
+      evidence,
+      scopeLock
+    });
+    if (!native.allowed || !native.grant || !("paths" in native.grant)) {
+      const code = native.outcome === ABSTRACTION_OUTCOMES.GAP ? ABSTRACTION_GAP : ABSTRACTION_VIOLATION;
+      throw new GuardError(code, native.reason ?? "Native Abstraction Lock rejected the source grant.", { abstraction: native });
+    }
 
     const issuedAt = Date.now();
+    const nativeGrant = native.grant as NativeSourceAccessGrant;
     const grant: SourceGrant = Object.freeze({
       repository,
       requestCommitSha,
-      paths: normalized,
+      paths: new Set(nativeGrant.paths),
       evidence,
       issuedAt,
-      expiresAt: issuedAt + this.ttlMs
+      expiresAt: issuedAt + this.ttlMs,
+      nativeGrant
     });
     this.grants.set(this.key(repository, requestCommitSha), grant);
     return grant;
