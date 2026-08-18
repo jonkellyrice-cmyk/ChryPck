@@ -1,0 +1,42 @@
+name: Native Toolchain Scaffold
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/scaffold_native_toolchain.py"
+
+concurrency:
+  group: native-toolchain-scaffold-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate native toolchain scaffold
+        run: python3 scripts/scaffold_native_toolchain.py .
+      - name: Verify generator is idempotent
+        run: |
+          git diff -- src test > /tmp/first.diff
+          python3 scripts/scaffold_native_toolchain.py .
+          git diff -- src test > /tmp/second.diff
+          diff -u /tmp/first.diff /tmp/second.diff
+      - name: Stage generated scaffold
+        run: git add src test
+      - name: Commit generated scaffold
+        shell: bash
+        run: |
+          if git diff --cached --quiet; then
+            echo "Scaffold already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --cached --check
+          git commit -m "Generate native ChryPck toolchain scaffold"
+          git push
