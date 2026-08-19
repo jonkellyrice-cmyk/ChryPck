@@ -1,5 +1,5 @@
 import type { AnalysisResult, DiagnosticFinding } from "../analysis/analyzer.js";
-import type { ContextSegment } from "../planning/context-pack.js";
+import type { ContextContinuation, ContextSegment } from "../planning/context-pack.js";
 import type { NativeContractRecord } from "../planning/planning-runner.js";
 import type { PatchCorridor } from "../planning/patch-corridor.js";
 
@@ -183,7 +183,8 @@ export function projectContextIndexSegment(segment: ContextSegment): Readonly<Re
       kind: symbol.kind,
       lineStart: symbol.lineStart,
       lineEnd: symbol.lineEnd,
-      truncated: symbol.truncated
+      truncated: symbol.truncated,
+      expandable: symbol.continuationId !== null
     }))),
     dependencies: Object.freeze(segment.dependencies.slice(0, MAX_INDEX_RELATIONSHIPS).map(dependency => Object.freeze({
       specifier: dependency.specifier,
@@ -197,6 +198,30 @@ export function projectContextIndexSegment(segment: ContextSegment): Readonly<Re
 export function projectContextSourceSegment(segment: ContextSegment): Readonly<Record<string, unknown>> {
   return Object.freeze({
     ...projectContextIndexSegment(segment),
-    content: segment.content
+    content: segment.content,
+    continuations: Object.freeze(segment.symbols
+      .filter(symbol => symbol.continuationId !== null)
+      .map(symbol => Object.freeze({
+        symbol: symbol.name,
+        next_segment_id: symbol.continuationId
+      })))
+  });
+}
+
+export function projectContextContinuation(continuation: ContextContinuation): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    id: continuation.id,
+    parent_segment_id: continuation.segmentId,
+    path: continuation.path,
+    symbol: continuation.symbol,
+    kind: continuation.kind,
+    chunk_index: continuation.chunkIndex,
+    chunk_count: continuation.chunkCount,
+    lineStart: continuation.lineStart,
+    lineEnd: continuation.lineEnd,
+    continued_from_previous: continuation.continuedFromPrevious,
+    content: continuation.source,
+    next_segment_id: continuation.nextContinuationId,
+    truncated: continuation.nextContinuationId !== null
   });
 }
