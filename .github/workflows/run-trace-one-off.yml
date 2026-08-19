@@ -24,29 +24,53 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Dry-run trace generator
-        run: node one_off/add-causal-trace-macro.mjs --dry-run
-
-      - name: Apply trace generator and validate
-        run: node one_off/add-causal-trace-macro.mjs
-
-      - name: Remove temporary generator artifacts
+      - name: Execute one-off and publish result
+        shell: bash
         run: |
-          rm -rf one_off/trace_payload
-          rm -f one_off/add-causal-trace-macro.mjs
-          rm -f .github/workflows/run-trace-one-off.yml
+          set +e
+          npm ci >/tmp/trace-install.log 2>&1
+          install_code=$?
 
-      - name: Commit generated trace implementation
-        run: |
+          dry_code=99
+          apply_code=99
+          if [ "$install_code" -eq 0 ]; then
+            node one_off/add-causal-trace-macro.mjs --dry-run >/tmp/trace-dry.log 2>&1
+            dry_code=$?
+            if [ "$dry_code" -eq 0 ]; then
+              node one_off/add-causal-trace-macro.mjs >/tmp/trace-apply.log 2>&1
+              apply_code=$?
+            fi
+          fi
+
+          printf 'install_exit=%s\ndry_run_exit=%s\napply_exit=%s\n' "$install_code" "$dry_code" "$apply_code" > .trace-one-off-result.txt
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No generated changes to commit."
-            exit 0
+
+          if [ "$install_code" -eq 0 ] && [ "$dry_code" -eq 0 ] && [ "$apply_code" -eq 0 ]; then
+            rm -f .trace-one-off-result.txt
+            rm -rf one_off/trace_payload
+            rm -f one_off/add-causal-trace-macro.mjs
+            rm -f .github/workflows/run-trace-one-off.yml
+            git add -A
+            git commit -m "Add causal trace workflow"
+            git push origin HEAD:main
+            exit $?
           fi
-          git commit -m "Add causal trace workflow"
+
+          {
+            echo
+            echo '--- install tail ---'
+            tail -n 30 /tmp/trace-install.log 2>/dev/null || true
+            echo
+            echo '--- dry-run tail ---'
+            tail -n 30 /tmp/trace-dry.log 2>/dev/null || true
+            echo
+            echo '--- apply tail ---'
+            tail -n 50 /tmp/trace-apply.log 2>/dev/null || true
+          } >> .trace-one-off-result.txt
+
+          git add .trace-one-off-result.txt
+          git commit -m "Record trace one-off failure"
           git push origin HEAD:main
+          exit 1
