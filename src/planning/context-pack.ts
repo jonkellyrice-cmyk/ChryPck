@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { DependencyReference, RepositoryModel, SymbolRecord } from "../repository/model.js";
 import type { PatchCorridor } from "./patch-corridor.js";
 
@@ -12,6 +13,22 @@ export interface ContextSymbol {
   readonly lineEnd: number;
   readonly source: string;
   readonly truncated: boolean;
+  readonly continuationId: string | null;
+}
+
+export interface ContextContinuation {
+  readonly id: string;
+  readonly segmentId: string;
+  readonly path: string;
+  readonly symbol: string;
+  readonly kind: SymbolRecord["kind"];
+  readonly chunkIndex: number;
+  readonly chunkCount: number;
+  readonly lineStart: number;
+  readonly lineEnd: number;
+  readonly source: string;
+  readonly continuedFromPrevious: boolean;
+  readonly nextContinuationId: string | null;
 }
 
 export interface ContextSegment {
@@ -29,46 +46,128 @@ export interface CorridorContextPack {
   readonly certified: true;
   readonly commitSha: string;
   readonly segments: readonly ContextSegment[];
+  readonly continuations: readonly ContextContinuation[];
   readonly omissions: readonly { path: string; reason: string }[];
   readonly grantedPaths: readonly string[];
 }
 
-function boundedSource(value: string): { source: string; truncated: boolean } {
-  if (value.length <= MAX_SYMBOL_SOURCE_CHARS) return { source: value, truncated: false };
-  return {
-    source: `${value.slice(0, MAX_SYMBOL_SOURCE_CHARS)}\n/* … certified context truncated … */`,
-    truncated: true
-  };
+interface SourceChunk {
+  readonly source: string;
+  readonly lineStart: number;
+  readonly lineEnd: number;
+  readonly continuedFromPrevious: boolean;
 }
 
-function symbolSlices(text: string, symbols: readonly SymbolRecord[], requested: ReadonlySet<string>): ContextSymbol[] {
-  if (requested.size === 0) return [];
+function countLineBreaks(value: string): number {
+  let count = 0;
+  for (let index = 0; index < value.length; index += 1) if (value.charCodeAt(index) === 10) count += 1;
+  return count;
+}
+
+function sourceChunks(value: string, startLine: number): SourceChunk[] {
+  if (!value.length) return [{ source: "", lineStart: startLine, lineEnd: startLine, continuedFromPrevious: false }];
+  const output: SourceChunk[] = [];
+  let offset = 0;
+  let lineStart = startLine;
+  let continuedFromPrevious = false;
+
+  while (offset < value.length) {
+    let end = Math.min(value.length, offset + MAX_SYMBOL_SOURCE_CHARS);
+    let lineBreaks = 0;
+    for (let index = offset; index < end; index += 1) {
+      if (value.charCodeAt(index) !== 10) continue;
+      lineBreaks += 1;
+      if (lineBreaks >= MAX_SYMBOL_SOURCE_LINES) {
+        end = index + 1;
+        break;
+      }
+    }
+    if (end <= offset) end = Math.min(value.length, offset + 1);
+    const source = value.slice(offset, end);
+    const actualBreaks = countLineBreaks(source);
+    const lineEnd = Math.max(
+      lineStart,
+      lineStart + actualBreaks - (source.endsWith("\n") ? 1 : 0)
+    );
+    output.push(Object.freeze({ source, lineStart, lineEnd, continuedFromPrevious }));
+    continuedFromPrevious = end < value.length && value.charCodeAt(end - 1) !== 10;
+    lineStart += actualBreaks;
+    offset = end;
+  }
+
+  return output;
+}
+
+function continuationId(segmentId: string, symbol: string, chunkIndex: number): string {
+  return `ctx-${createHash("sha256")
+    .update(`${segmentId}\n${symbol}\n${chunkIndex}`)
+    .digest("hex")
+    .slice(0, 20)}`;
+}
+
+function symbolSlices(
+  text: string,
+  symbols: readonly SymbolRecord[],
+  requested: ReadonlySet<string>,
+  segmentId: string
+): { symbols: ContextSymbol[]; continuations: ContextContinuation[] } {
+  if (requested.size === 0) return { symbols: [], continuations: [] };
   const lines = text.split("\n");
   const ordered = [...symbols].sort((left, right) => left.line - right.line);
   const output: ContextSymbol[] = [];
+  const continuations: ContextContinuation[] = [];
+
   for (let index = 0; index < ordered.length && output.length < MAX_CONTEXT_SYMBOLS_PER_SEGMENT; index += 1) {
     const symbol = ordered[index];
     if (!symbol || !requested.has(symbol.name)) continue;
     const next = ordered[index + 1];
     const start = Math.max(1, symbol.line);
     const naturalEnd = Math.max(start, Math.min(lines.length, (next?.line ?? lines.length + 1) - 1));
-    const lineEnd = Math.min(naturalEnd, start + MAX_SYMBOL_SOURCE_LINES - 1);
-    const bounded = boundedSource(lines.slice(start - 1, lineEnd).join("\n"));
+    const rawSource = lines.slice(start - 1, naturalEnd).join("\n");
+    const chunks = sourceChunks(rawSource, start);
+    const first = chunks[0];
+    if (!first) continue;
+    const continuationIds = chunks.map((_, chunkIndex) =>
+      chunkIndex === 0 ? null : continuationId(segmentId, symbol.name, chunkIndex + 1)
+    );
+
     output.push(Object.freeze({
       name: symbol.name,
       kind: symbol.kind,
-      lineStart: start,
-      lineEnd,
-      source: bounded.source,
-      truncated: naturalEnd > lineEnd || bounded.truncated
+      lineStart: first.lineStart,
+      lineEnd: first.lineEnd,
+      source: first.source,
+      truncated: chunks.length > 1,
+      continuationId: continuationIds[1] ?? null
     }));
+
+    for (let chunkIndex = 1; chunkIndex < chunks.length; chunkIndex += 1) {
+      const chunk = chunks[chunkIndex];
+      const id = continuationIds[chunkIndex];
+      if (!chunk || !id) continue;
+      continuations.push(Object.freeze({
+        id,
+        segmentId,
+        path: symbol.file,
+        symbol: symbol.name,
+        kind: symbol.kind,
+        chunkIndex: chunkIndex + 1,
+        chunkCount: chunks.length,
+        lineStart: chunk.lineStart,
+        lineEnd: chunk.lineEnd,
+        source: chunk.source,
+        continuedFromPrevious: chunk.continuedFromPrevious,
+        nextContinuationId: continuationIds[chunkIndex + 1] ?? null
+      }));
+    }
   }
-  return output;
+
+  return { symbols: output, continuations };
 }
 
 function segmentContent(symbols: readonly ContextSymbol[]): string {
   return symbols.map(symbol => [
-    `/* ${symbol.name} (${symbol.kind}) lines ${symbol.lineStart}-${symbol.lineEnd}${symbol.truncated ? ", truncated" : ""} */`,
+    `/* ${symbol.name} (${symbol.kind}) lines ${symbol.lineStart}-${symbol.lineEnd}${symbol.truncated ? ", truncated; continuation available" : ""} */`,
     symbol.source
   ].join("\n")).join("\n\n");
 }
@@ -76,6 +175,7 @@ function segmentContent(symbols: readonly ContextSymbol[]): string {
 export function buildContextPack(corridor: PatchCorridor, model: RepositoryModel, maxSegments = 24): CorridorContextPack {
   if (!corridor.certified) throw new Error("Context Pack requires a certified Patch Corridor.");
   const segments: ContextSegment[] = [];
+  const continuations: ContextContinuation[] = [];
   const omissions: { path: string; reason: string }[] = [];
   for (const row of corridor.files.slice(0, Math.max(1, maxSegments))) {
     const file = model.snapshot.files.find(candidate => candidate.path === row.path);
@@ -85,27 +185,30 @@ export function buildContextPack(corridor: PatchCorridor, model: RepositoryModel
       continue;
     }
     const requested = new Set(row.symbols.map(symbol => symbol.name));
-    const symbols = symbolSlices(file.text, facts.symbols, requested);
-    if (!symbols.length) {
+    const segmentId = `file:${row.path}`;
+    const built = symbolSlices(file.text, facts.symbols, requested, segmentId);
+    if (!built.symbols.length) {
       omissions.push({ path: row.path, reason: "certified file has no objective-local symbol anchor; exhaustive file source remains hidden" });
       continue;
     }
     const consumers = [...new Set(model.dependencies.filter(edge => edge.to === row.path).map(edge => edge.from))].sort();
     segments.push(Object.freeze({
-      id: `file:${row.path}`,
+      id: segmentId,
       path: row.path,
-      content: segmentContent(symbols),
+      content: segmentContent(built.symbols),
       evidence: Object.freeze([...row.reasons]),
-      symbols: Object.freeze(symbols),
+      symbols: Object.freeze(built.symbols),
       dependencies: Object.freeze([...facts.dependencies]),
       consumers: Object.freeze(consumers)
     }));
+    continuations.push(...built.continuations);
   }
   return Object.freeze({
     objective: corridor.objective,
     certified: true,
     commitSha: model.snapshot.commitSha,
     segments: Object.freeze(segments),
+    continuations: Object.freeze(continuations),
     omissions: Object.freeze(omissions),
     grantedPaths: Object.freeze(segments.map(segment => segment.path).sort())
   });
