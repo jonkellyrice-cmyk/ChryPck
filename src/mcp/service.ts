@@ -17,6 +17,7 @@ import { architectureCorridor, planArchitecture, type ArchitecturePlan } from ".
 import type { AuthoringIntent } from "../mutation/authoring-compiler.js";
 import type { PlanInput, ContextInput, ExecuteInput, ResultInput } from "./schemas.js";
 import {
+  projectContextContinuation,
   projectContextIndexSegment,
   projectContextSourceSegment,
   projectDiagnosticMaps,
@@ -240,22 +241,39 @@ export class NativeMcpService {
         segments: Object.freeze(context.segments.map(projectContextIndexSegment)),
         omissions: context.omissions,
         granted_paths: context.grantedPaths,
-        permitted_next_action: "call chrypck_context again with one segment_id for bounded source expansion"
+        permitted_next_action: "call chrypck_context again with one server-issued segment_id for bounded source expansion"
       });
     }
 
     const segment = context.segments.find(candidate => candidate.id === input.segment_id);
-    if (!segment) throw new Error(`Unknown Context Pack segment: ${input.segment_id}`);
+    if (segment) {
+      return Object.freeze({
+        run_id: run.runId,
+        repository: run.repository,
+        base_commit_sha: context.commitSha,
+        certified: true,
+        mode: "segment",
+        segments: Object.freeze([projectContextSourceSegment(segment)]),
+        omissions: context.omissions,
+        granted_paths: context.grantedPaths,
+        permitted_next_action: "use any returned next_segment_id to expand only that truncated certified symbol, or execute/request another certified segment"
+      });
+    }
+
+    const continuation = context.continuations.find(candidate => candidate.id === input.segment_id);
+    if (!continuation) throw new Error(`Unknown server-issued Context Pack segment: ${input.segment_id}`);
     return Object.freeze({
       run_id: run.runId,
       repository: run.repository,
       base_commit_sha: context.commitSha,
       certified: true,
-      mode: "segment",
-      segments: Object.freeze([projectContextSourceSegment(segment)]),
+      mode: "continuation",
+      segments: Object.freeze([projectContextContinuation(continuation)]),
       omissions: context.omissions,
       granted_paths: context.grantedPaths,
-      permitted_next_action: "chrypck_execute_or_request_another_certified_segment"
+      permitted_next_action: continuation.nextContinuationId
+        ? "call chrypck_context with the returned next_segment_id for the next bounded chunk of this same certified symbol"
+        : "chrypck_execute_or_request_another_certified_segment"
     });
   }
 
