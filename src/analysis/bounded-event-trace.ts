@@ -245,6 +245,32 @@ export async function analyzeBoundedEventTrace(
           break;
         }
       }
+      // If no explicit guard, attempt payload field-presence inference
+      if (!guard) {
+        const suspectFields = detectSuspectFieldsAtNode(to, model);
+        if (suspectFields.length) {
+          // reconstruct path nodes up to 'to'
+          const pathToNode: string[] = [];
+          let cur: string | null = to;
+          while (cur) { pathToNode.unshift(cur); const p = parent.get(cur); cur = p?.from ?? null; }
+          const upstreamHasField = suspectFields.some(field => effectsMentionField(field, pathToNode, model));
+          if (!upstreamHasField) {
+            const detail = `possible-missing-field: ${suspectFields.join(",")} on ${to}`;
+            const eid = cryptoFingerprint({ detail, path: pathToNode.join(",") });
+            const inferred: GuardRecord = {
+              symbol: to.split("@")[0] ?? to,
+              file: to.split("@")[1] ?? "",
+              line: 0,
+              condition: detail,
+              guardKind: "null-check",
+              evidenceIds: [eid]
+            };
+            evidence.push({ id: eid, type: "inferred-missing-field", detail, snippet: detail });
+            firstBlocker = firstBlocker ?? inferred;
+            if (terminateOnFirstBlocker) { queue.length = 0; break; }
+          }
+        }
+      }
       queue.push(to);
     }
     if (firstBlocker && terminateOnFirstBlocker) break;
@@ -328,6 +354,44 @@ export async function analyzeBoundedEventTrace(
     certificate
   });
   return result;
+}
+
+// Helper: detect suspect payload/field access patterns in a node's source block
+function detectSuspectFieldsAtNode(nodeId: string, model?: RepositoryModel): string[] {
+  if (!model) return [];
+  const parts = nodeId.split("@");
+  const name = parts[0] ?? "";
+  const file = parts[1] ?? "";
+  const fileEntry = model.snapshot.files.find(f => f.path === file);
+  if (!fileEntry || !fileEntry.text) return [];
+  const facts = model.fileFacts.find(f => f.file === file);
+  const symbol = facts?.symbols.find(s => s.name === name);
+  const startLine = symbol ? symbol.line : 1;
+  const nextSymbolLine = facts?.symbols.find(s => s.line > startLine)?.line ?? (fileEntry.text.split("\n").length + 1);
+  const lines = fileEntry.text.split("\n").slice(startLine - 1, nextSymbolLine - 1);
+  const block = lines.join("\n").slice(0, 2000);
+  const suspects: string[] = [];
+  const patterns: Array<[RegExp, string]> = [
+    [/(?:message|msg|payload)\.id\b/i, "message.id"],
+    [/(?:message|msg|payload)\[['"]id['"]\]/i, "message['id']"],
+    [/\btargetUuid\b/i, "targetUuid"],
+    [/\btarget_uuid\b/i, "target_uuid"],
+    [/\btargetId\b/i, "targetId"],
+  ];
+  for (const [rx, label] of patterns) if (rx.test(block)) suspects.push(label);
+  return suspects;
+}
+
+// Helper: check model.effects for mentions of a given field anywhere on the upstream path
+function effectsMentionField(field: string, pathNodes: string[], model?: RepositoryModel): boolean {
+  if (!model) return false;
+  const pathFiles = new Set(pathNodes.map(n => n.split("@")[1] ?? ""));
+  for (const eff of model.effects) {
+    if (eff.detail && typeof eff.detail === "string" && eff.detail.toLowerCase().includes(field.toLowerCase())) return true;
+    if (eff.symbol && pathNodes.some(n => n.startsWith(eff.symbol + "@"))) return true;
+    if (eff.file && pathFiles.has(eff.file)) return true;
+  }
+  return false;
 }
 
 function cryptoFingerprint(obj: unknown): string {
