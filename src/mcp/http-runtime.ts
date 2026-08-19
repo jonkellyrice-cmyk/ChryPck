@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { loadConfig, type ChryPckConfig } from "../config.js";
+import { userHandle, commonRepos } from "./user-identity.js";
 import { GitHubRestTransport, GitHubTransportError } from "../adapters/github/client.js";
 import { GitHubRepositoryAdapter } from "../adapters/github/repository-adapter.js";
 import { PolicyError } from "../core/policy/errors.js";
@@ -246,6 +247,8 @@ export function buildHealthPayload(runtime: ChryPckServiceRuntime) {
     version: "1.0.0",
     execution: "native",
     repository_visibility: "diagnostic-projection-plus-certified-context",
+    user_handle: userHandle,
+    common_repos: commonRepos,
     project_profiles: runtime.projectProfiles.list().map(profile => profile.id)
   };
 }
