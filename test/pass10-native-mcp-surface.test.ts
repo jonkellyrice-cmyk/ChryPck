@@ -32,15 +32,26 @@ function serviceOptions() {
   };
 }
 
-test("live native service exposes plan/context/execute/result semantics", async () => {
+test("live native service exposes bounded plan/context/execute/result semantics", async () => {
   assert.deepEqual([...CHRYPCK_TOOL_NAMES], ["chrypck_plan", "chrypck_context", "chrypck_execute", "chrypck_result"]);
   const repository = new MemoryRepository();
   const service = new NativeMcpService(repository, serviceOptions());
   const plan = await service.plan({ repository: "owner/repo", objective: "provider", base_ref: "main" });
   assert.equal(plan.state, "READY");
   assert.equal(plan.context_available, true);
-  const context = service.context({ run_id: plan.run_id });
-  assert.equal(context.segments.length, 1);
+  assert.equal(JSON.stringify(plan).includes(repository.text), false, "plan must never expose exhaustive repository source");
+
+  const contextIndex = service.context({ run_id: plan.run_id });
+  assert.equal(contextIndex.mode, "index");
+  assert.equal(contextIndex.segments.length, 1);
+  assert.equal(JSON.stringify(contextIndex).includes(repository.text), false, "context index must contain metadata only");
+
+  const segmentId = String(contextIndex.segments[0]?.id ?? "");
+  const expandedContext = service.context({ run_id: plan.run_id, segment_id: segmentId });
+  assert.equal(expandedContext.mode, "segment");
+  assert.equal(expandedContext.segments.length, 1);
+  assert.match(String(expandedContext.segments[0]?.content ?? ""), /provider/);
+
   const result = await service.execute({ run_id: plan.run_id, authoring_intent: { id: "provider-edit", objective: "provider", edits: [{ type: "replace_exact", path: "src/provider.ts", search: "return 1", replace: "return 2" }] } });
   assert.equal(result.state, "SUCCEEDED");
   assert.equal(result.result_commit_sha, "b".repeat(40));
