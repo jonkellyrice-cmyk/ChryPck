@@ -225,3 +225,28 @@ export function projectContextContinuation(continuation: ContextContinuation): R
     truncated: continuation.nextContinuationId !== null
   });
 }
+
+export function projectTraceHop(hop: any): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    hop: hop.hop,
+    question: hop.question,
+    from: hop.from,
+    to: hop.to,
+    edge_kind: hop.edge_kind,
+    finding: hop.finding,
+    evidence: hop.evidence,
+    context: hop.context ? { file: hop.context.file, snippet: typeof hop.context.snippet === "string" ? hop.context.snippet.slice(0, 4000) : hop.context.snippet } : null
+  });
+}
+
+export function projectTraceResult(trace: any): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    status: trace.status,
+    terminal_reason: trace.terminal_reason,
+    root_cause: trace.root_cause ? Object.freeze({ ...trace.root_cause }) : null,
+    trace: Object.freeze((trace.trace ?? []).map(projectTraceHop)),
+    considered_branches: Object.freeze(trace.considered_branches ?? []),
+    unresolved_questions: Object.freeze(trace.unresolved_questions ?? []),
+    likely_patch_candidates: Object.freeze(trace.likely_patch_candidates ?? [])
+  });
+}

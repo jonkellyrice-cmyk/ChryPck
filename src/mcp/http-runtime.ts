@@ -81,7 +81,12 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
         repository: z.string().min(3),
         objective: z.string().trim().min(1),
         base_ref: z.string().trim().min(1).optional(),
-        architecture: architectureSchema.optional()
+        architecture: architectureSchema.optional(),
+        analysis: z.object({
+          kind: z.literal("trace"),
+          max_hops: z.number().int().positive().optional(),
+          max_branches: z.number().int().positive().optional()
+        }).optional()
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },

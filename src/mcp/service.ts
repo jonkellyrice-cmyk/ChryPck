@@ -14,6 +14,7 @@ import { summarizeRunArtifacts } from "../core/run/run-artifacts.js";
 import type { ProjectProfileRegistry } from "../project/registry.js";
 import type { ProjectProfile } from "../project/profile.js";
 import { architectureCorridor, planArchitecture, type ArchitecturePlan } from "../architecture/index.js";
+import { runTrace, type TraceResult } from "../analysis/trace-runner.js";
 import type { AuthoringIntent } from "../mutation/authoring-compiler.js";
 import type { PlanInput, ContextInput, ExecuteInput, ResultInput } from "./schemas.js";
 import {
@@ -169,6 +170,65 @@ export class NativeMcpService {
         nativeContractProvider: profile.nativeContractProvider
       }
     });
+    // Trace mode: run a bounded, read-only causal trace and return curated evidence
+    if (input.analysis?.kind === "trace") {
+      // record planning artifacts as usual to preserve existing behavior
+      this.orchestrator.recordArtifact(run.runId, "planning", base, {
+        projectProfile: profile.id,
+        corridorCertified: base.corridor.certified,
+        contextSegments: base.context?.segments.length ?? 0,
+        diagnostics: base.diagnostics.length,
+        nativeContracts: base.nativeContracts.length,
+        architecture: null
+      });
+
+      const traceResult: TraceResult = runTrace({
+        objective: input.objective.trim(),
+        model,
+        diagnostics: base.diagnostics,
+        max_hops: input.analysis?.max_hops,
+        max_branches: input.analysis?.max_branches
+      });
+
+      // Bind minimal run binding but do NOT grant mutation authority or allowedNewPaths
+      const binding = Object.freeze({
+        targetRef,
+        baseCommitSha: snapshot.commitSha,
+        profileId: profile.id,
+        architecturePlan: null,
+        allowedNewPaths: Object.freeze([])
+      });
+      this.#bindings.set(run.runId, binding);
+
+      // If trace could not continue due to lack of certified edges, mark capability gap
+      if (traceResult.status === "capability_gap") {
+        this.orchestrator.transition(run.runId, "CAPABILITY_GAP", "native_plan_gap");
+      } else {
+        // terminal successful diagnostic
+        this.orchestrator.transition(run.runId, "SUCCEEDED", "native_trace_complete");
+      }
+
+      // return a curated response compatible with planResult shape but embedding analysis.trace
+      return Object.freeze({
+        run_id: run.runId,
+        state: run.state,
+        repository: run.repository,
+        project_profile: profile.id,
+        base_ref: targetRef,
+        base_commit_sha: snapshot.commitSha,
+        scope_lock_fingerprint: run.scopeLock.fingerprint,
+        corridor: base.corridor ?? null,
+        diagnostics: base ? projectDiagnosticMaps(base.diagnostics, base.corridor) : [],
+        native_contracts: base ? projectNativeContractMaps(base.nativeContracts, base.corridor) : [],
+        architecture_plan: null,
+        architecture_requires_review: false,
+        context_available: false,
+        context_segment_count: 0,
+        context_index: Object.freeze([]),
+        analysis: Object.freeze({ kind: "trace", status: traceResult.status, terminal_reason: traceResult.terminal_reason, root_cause: traceResult.root_cause, trace: traceResult.trace, considered_branches: traceResult.considered_branches, unresolved_questions: traceResult.unresolved_questions, likely_patch_candidates: traceResult.likely_patch_candidates }),
+        permitted_next_action: "create_normal_plan_from_trace_root_cause"
+      });
+    }
     const architecturePlan = input.architecture ? planArchitecture(model, input.architecture) : null;
     const planning = architecturePlanning(base, model, architecturePlan);
     this.orchestrator.recordArtifact(run.runId, "planning", planning, {
