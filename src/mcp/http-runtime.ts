@@ -82,11 +82,29 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
         objective: z.string().trim().min(1),
         base_ref: z.string().trim().min(1).optional(),
         architecture: architectureSchema.optional(),
-        analysis: z.object({
-          kind: z.literal("trace"),
-          max_hops: z.number().int().positive().optional(),
-          max_branches: z.number().int().positive().optional()
-        }).optional()
+        analysis: z.union([
+          z.object({
+            kind: z.literal("trace"),
+            max_hops: z.number().int().positive().optional(),
+            max_branches: z.number().int().positive().optional()
+          }),
+          z.object({
+            kind: z.literal("bounded-event-trace"),
+            sourceSymbol: z.string().trim().min(1),
+            targetEffect: z.string().trim().min(1).optional(),
+            options: z.object({
+              fileGlobAllow: z.array(z.string()).optional(),
+              fileGlobDeny: z.array(z.string()).optional(),
+              namespaceAllow: z.array(z.string()).optional(),
+              namespaceDeny: z.array(z.string()).optional(),
+              symbolAllow: z.array(z.string()).optional(),
+              symbolDeny: z.array(z.string()).optional(),
+              maxHops: z.number().int().positive().optional(),
+              maxBranches: z.number().int().positive().optional(),
+              terminateOnFirstBlocker: z.boolean().optional()
+            }).optional()
+          })
+        ]).optional()
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },

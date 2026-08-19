@@ -250,3 +250,16 @@ export function projectTraceResult(trace: any): Readonly<Record<string, unknown>
     likely_patch_candidates: Object.freeze(trace.likely_patch_candidates ?? [])
   });
 }
+
+export function projectBoundedEventTraceResult(trace: any): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    status: trace.status,
+    entrypoint: trace.entrypoint ?? null,
+    path: Object.freeze((trace.path ?? []).map((hop: any) => Object.freeze({ symbol: hop.symbol, file: hop.file, snippet: hop.snippet }))),
+    first_blocker: trace.firstBlocker ?? null,
+    terminal_effect: trace.terminalEffect ?? null,
+    excluded_branches: Object.freeze(trace.excludedBranches ?? []),
+    evidence: Object.freeze(trace.evidence ?? []),
+    certificate: trace.certificate ?? null
+  });
+}
