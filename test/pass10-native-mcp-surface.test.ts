@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { NativeMcpService } from "../src/mcp/service.js";
 import type { RepositoryAdapter, RepositoryPublishRequest } from "../src/repository/adapter.js";
 import { createSnapshot, type RepositorySnapshot } from "../src/repository/snapshot.js";
-import { CHRYPCK_TOOL_NAMES } from "../src/mcp/tools.js";
+import { CHRYPCK_TOOL_NAMES, CHRYPCK_TOOLS } from "../src/mcp/tools.js";
 import { createBuiltinProjectProfileRegistry } from "../src/project/builtin-profiles.js";
 
 class MemoryRepository implements RepositoryAdapter {
@@ -31,6 +31,22 @@ function serviceOptions() {
     projectProfiles: createBuiltinProjectProfileRegistry()
   };
 }
+
+test("native MCP surface keeps four distinct agent-facing operations", () => {
+  assert.deepEqual([...CHRYPCK_TOOL_NAMES], ["chrypck_plan", "chrypck_context", "chrypck_execute", "chrypck_result"]);
+  assert.deepEqual(CHRYPCK_TOOLS.map(tool => tool.name), [...CHRYPCK_TOOL_NAMES]);
+  assert.deepEqual(CHRYPCK_TOOLS.map(tool => tool.readOnly), [true, true, false, true]);
+
+  const descriptions = CHRYPCK_TOOLS.map(tool => tool.description.trim());
+  assert.equal(descriptions.every(description => description.length >= 40), true);
+  assert.equal(new Set(descriptions).size, CHRYPCK_TOOLS.length);
+
+  assert.match(CHRYPCK_TOOLS[0]!.description, /Start governed repository work/);
+  assert.match(CHRYPCK_TOOLS[1]!.description, /server-certified Context Pack/);
+  assert.match(CHRYPCK_TOOLS[1]!.description, /arbitrary paths are never accepted/);
+  assert.match(CHRYPCK_TOOLS[2]!.description, /exactly one mode/);
+  assert.match(CHRYPCK_TOOLS[3]!.description, /authoritative bounded run state/);
+});
 
 test("live native service exposes bounded plan/context/execute/result semantics", async () => {
   assert.deepEqual([...CHRYPCK_TOOL_NAMES], ["chrypck_plan", "chrypck_context", "chrypck_execute", "chrypck_result"]);
