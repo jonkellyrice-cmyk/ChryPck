@@ -223,7 +223,6 @@ export function analyzeTrace(
   const maxBranches = Math.max(1, options.maxBranches ?? 2);
   const terminateOnFirstBlocker = options.terminateOnFirstBlocker !== false;
   const allowedFiles = corridor.certified ? new Set(corridor.files.map(file => file.path)) : null;
-  if (allowedFiles && !allowedFiles.has(chosen.file)) return emptyResult();
 
   const graph = buildTraceGraph(model);
   const startNodeId = `${chosen.name}@${chosen.file}`;
