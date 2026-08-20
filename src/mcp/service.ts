@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { RepositoryAdapter } from "../repository/adapter.js";
 import { buildRepositoryModel } from "../repository/model-builder.js";
+import { buildRepositoryOrientation, type RepositoryOrientation } from "../repository/repository-atlas.js";
 import { runNativePlanning, type NativePlanningResult } from "../planning/planning-runner.js";
 import { buildContextPack } from "../planning/context-pack.js";
 import { planPatchStages } from "../planning/patch-staging.js";
@@ -40,6 +41,7 @@ interface RunBinding {
   readonly profileId: string;
   readonly architecturePlan: ArchitecturePlan | null;
   readonly allowedNewPaths: readonly string[];
+  readonly orientation: RepositoryOrientation;
 }
 
 function repositoryName(value: string): string {
@@ -162,6 +164,7 @@ export class NativeMcpService {
     const snapshot = await this.adapter.snapshot(repository, targetRef);
     this.orchestrator.bindRequestCommit(run.runId, snapshot.commitSha);
     const model = buildRepositoryModel(snapshot, { profile: profile.sourceProfile });
+    const orientation = buildRepositoryOrientation(model);
     const base = runNativePlanning({
       objective: input.objective.trim(),
       model,
@@ -197,7 +200,8 @@ export class NativeMcpService {
         baseCommitSha: snapshot.commitSha,
         profileId: profile.id,
         architecturePlan: null,
-        allowedNewPaths: Object.freeze([])
+        allowedNewPaths: Object.freeze([]),
+        orientation
       });
       this.#bindings.set(run.runId, binding);
 
@@ -218,6 +222,8 @@ export class NativeMcpService {
         base_ref: targetRef,
         base_commit_sha: snapshot.commitSha,
         scope_lock_fingerprint: run.scopeLock.fingerprint,
+        repository_atlas: orientation.atlas,
+        coverage: orientation.coverage,
         corridor: base.corridor ?? null,
         diagnostics: base ? projectDiagnosticMaps(base.diagnostics, base.corridor) : [],
         native_contracts: base ? projectNativeContractMaps(base.nativeContracts, base.corridor) : [],
@@ -256,7 +262,8 @@ export class NativeMcpService {
         baseCommitSha: snapshot.commitSha,
         profileId: profile.id,
         architecturePlan: null,
-        allowedNewPaths: Object.freeze([])
+        allowedNewPaths: Object.freeze([]),
+        orientation
       });
       this.#bindings.set(run.runId, binding);
 
@@ -274,6 +281,8 @@ export class NativeMcpService {
         base_ref: targetRef,
         base_commit_sha: snapshot.commitSha,
         scope_lock_fingerprint: run.scopeLock.fingerprint,
+        repository_atlas: orientation.atlas,
+        coverage: orientation.coverage,
         corridor: base.corridor ?? null,
         diagnostics: base ? projectDiagnosticMaps(base.diagnostics, base.corridor) : [],
         native_contracts: base ? projectNativeContractMaps(base.nativeContracts, base.corridor) : [],
@@ -301,7 +310,8 @@ export class NativeMcpService {
       baseCommitSha: snapshot.commitSha,
       profileId: profile.id,
       architecturePlan,
-      allowedNewPaths: Object.freeze([...(architecturePlan?.authorizedNewPaths ?? [])])
+      allowedNewPaths: Object.freeze([...(architecturePlan?.authorizedNewPaths ?? [])]),
+      orientation
     });
     this.#bindings.set(run.runId, binding);
     if (!planning.corridor.certified || !planning.context || planning.context.segments.length === 0 || architecturePlan?.gaps.length) {
@@ -318,6 +328,7 @@ export class NativeMcpService {
     architecturePlan: ArchitecturePlan | null
   ) {
     const run = this.orchestrator.store.require(runId);
+    const binding = this.#bindings.get(runId);
     const planning = run.artifacts.planning;
     const contextIndex = planning?.context
       ? planning.context.segments.map(projectContextIndexSegment)
@@ -330,6 +341,8 @@ export class NativeMcpService {
       base_ref: targetRef,
       base_commit_sha: baseCommitSha,
       scope_lock_fingerprint: run.scopeLock.fingerprint,
+      repository_atlas: binding?.orientation.atlas ?? null,
+      coverage: binding?.orientation.coverage ?? null,
       corridor: planning?.corridor ?? null,
       diagnostics: planning ? projectDiagnosticMaps(planning.diagnostics, planning.corridor) : [],
       native_contracts: planning ? projectNativeContractMaps(planning.nativeContracts, planning.corridor) : [],
