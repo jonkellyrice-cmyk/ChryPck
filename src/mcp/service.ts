@@ -6,6 +6,7 @@ import { runNativePlanning, type NativePlanningResult } from "../planning/planni
 import { buildContextPack } from "../planning/context-pack.js";
 import { planPatchStages } from "../planning/patch-staging.js";
 import { planRuntimeProbes } from "../planning/runtime-probes.js";
+import { validateTraceHandoff, type CertifiedTracePlanningEvidence } from "../planning/trace-handoff.js";
 import { createStructuralValidator } from "../validation/structural-validator.js";
 import { buildValidationCommandPlan } from "../validation/command-plan.js";
 import { DisabledSandboxRunner, type SandboxRunner } from "../validation/sandbox-runner.js";
@@ -53,6 +54,7 @@ interface RunBinding {
   readonly allowedNewPaths: readonly string[];
   readonly orientation: RepositoryOrientation;
   readonly semanticOrientation: SemanticOrientation;
+  readonly traceHandoff: CertifiedTracePlanningEvidence | null;
 }
 
 function repositoryName(value: string): string {
@@ -66,7 +68,12 @@ function repositoryName(value: string): string {
 
 function requestId(input: PlanInput): string {
   return `native-${createHash("sha256")
-    .update(JSON.stringify({ objective: input.objective.trim(), architecture: input.architecture ?? null }))
+    .update(JSON.stringify({
+      objective: input.objective.trim(),
+      architecture: input.architecture ?? null,
+      analysis: input.analysis ?? null,
+      trace_handoff: input.trace_handoff ?? null
+    }))
     .digest("hex")
     .slice(0, 12)}`;
 }
@@ -89,6 +96,8 @@ function requestForPlan(input: PlanInput): Record<string, unknown> {
     id,
     planning_goal: goal,
     architecture_request: input.architecture ?? null,
+    analysis_request: input.analysis ?? null,
+    trace_handoff: input.trace_handoff ?? null,
     moves: input.architecture?.kind === "move" ? input.architecture.moves : [],
     candidates: input.architecture?.kind === "decompose"
       ? (input.architecture.paths ?? []).map(source => ({ source, units: [] }))
@@ -150,6 +159,16 @@ function pendingSemanticCoverage(regionCount: number, chunkCount: number): Seman
   });
 }
 
+function projectTraceHandoff(evidence: CertifiedTracePlanningEvidence | null | undefined) {
+  if (!evidence) return null;
+  return Object.freeze({
+    source_run_id: evidence.sourceRunId,
+    certificate_id: evidence.certificateId,
+    trace_status: evidence.traceStatus,
+    path_length: evidence.path.length
+  });
+}
+
 export class NativeMcpService {
   readonly orchestrator = new NativeOrchestrator();
   readonly #bindings = new Map<string, RunBinding>();
@@ -206,6 +225,7 @@ export class NativeMcpService {
         bootstrap_id: args.currentChunk.bootstrap_id,
         current_chunk: args.currentChunk
       }),
+      trace_handoff: null,
       corridor: null,
       diagnostics: Object.freeze([]),
       native_contracts: Object.freeze([]),
@@ -223,6 +243,12 @@ export class NativeMcpService {
     const profile = this.profileFor(repository);
     const targetRef = input.base_ref?.trim() || this.options.defaultTargetRef;
     if (!targetRef || targetRef === "HEAD") throw new Error("Planning requires an explicit branch/ref, not HEAD.");
+    if (input.trace_handoff && input.analysis) {
+      throw new Error("Trace handoff is a normal-planning input and cannot be combined with a new analysis request.");
+    }
+    if (input.trace_handoff && input.architecture) {
+      throw new Error("Trace handoff is a normal-planning input and cannot be combined with an architecture request.");
+    }
 
     const request = requestForPlan(input);
     const run = this.orchestrator.admitRequest({ repository, request, requestPath: "mcp://chrypck_plan" });
@@ -315,9 +341,39 @@ export class NativeMcpService {
       }
     }
 
+    let traceEvidence: CertifiedTracePlanningEvidence | undefined;
+    if (input.trace_handoff) {
+      let sourceRun;
+      try {
+        sourceRun = this.orchestrator.store.require(input.trace_handoff.run_id);
+      } catch {
+        throw new Error("Trace handoff rejected: source run does not exist in this ChryPck runtime.");
+      }
+      const sourceBinding = this.#bindings.get(sourceRun.runId);
+      if (!sourceBinding) {
+        throw new Error("Trace handoff rejected: source run is missing its immutable repository/profile binding.");
+      }
+      traceEvidence = validateTraceHandoff(
+        input.trace_handoff,
+        {
+          runId: sourceRun.runId,
+          repository: sourceRun.repository,
+          commitSha: sourceBinding.baseCommitSha,
+          projectProfile: sourceBinding.profileId,
+          trace: sourceRun.artifacts.trace
+        },
+        {
+          repository,
+          commitSha: snapshot.commitSha,
+          projectProfile: profile.id
+        }
+      );
+    }
+
     const base = runNativePlanning({
       objective: input.objective.trim(),
       model,
+      traceEvidence,
       extensions: {
         additionalAnalyzers: profile.additionalAnalyzers,
         runtimeProbePlanner: profile.runtimeProbePlanner,
@@ -346,6 +402,14 @@ export class NativeMcpService {
         options: input.analysis.options
       }, model, base.corridor);
 
+      this.orchestrator.recordArtifact(run.runId, "trace", traceResult, {
+        status: traceResult.status,
+        certificateId: traceResult.certificate?.certificateId ?? null,
+        pathLength: traceResult.path.length,
+        blocker: traceResult.firstBlocker?.symbol ?? null,
+        terminalEffect: traceResult.terminalEffect?.kind ?? null
+      });
+
       const binding = Object.freeze({
         targetRef,
         baseCommitSha: snapshot.commitSha,
@@ -353,7 +417,8 @@ export class NativeMcpService {
         architecturePlan: null,
         allowedNewPaths: Object.freeze([]),
         orientation,
-        semanticOrientation
+        semanticOrientation,
+        traceHandoff: null
       });
       this.#bindings.set(run.runId, binding);
 
@@ -376,6 +441,7 @@ export class NativeMcpService {
         semantic_atlas: semanticOrientation.atlas,
         semantic_coverage: semanticOrientation.coverage,
         semantic_bootstrap: Object.freeze({ status: "complete" as const, bootstrap_id: null, current_chunk: null }),
+        trace_handoff: null,
         corridor: base.corridor ?? null,
         diagnostics: projectDiagnosticMaps(base.diagnostics, base.corridor),
         native_contracts: projectNativeContractMaps(base.nativeContracts, base.corridor),
@@ -385,7 +451,9 @@ export class NativeMcpService {
         context_segment_count: 0,
         context_index: Object.freeze([]),
         analysis: Object.freeze({ kind: "trace" as const, result: traceResult }),
-        permitted_next_action: "create_normal_plan_from_trace_evidence"
+        permitted_next_action: traceResult.status === "UNABLE_TO_CERTIFY"
+          ? "chrypck_result"
+          : "create_normal_plan_with_trace_handoff"
       });
     }
 
@@ -398,6 +466,8 @@ export class NativeMcpService {
       diagnostics: planning.diagnostics.length,
       nativeContracts: planning.nativeContracts.length,
       semanticRegions: semanticOrientation.atlas.region_count,
+      traceSourceRunId: traceEvidence?.sourceRunId ?? null,
+      traceCertificateId: traceEvidence?.certificateId ?? null,
       architecture: architecturePlan?.kind ?? null
     });
     const binding = Object.freeze({
@@ -407,7 +477,8 @@ export class NativeMcpService {
       architecturePlan,
       allowedNewPaths: Object.freeze([...(architecturePlan?.authorizedNewPaths ?? [])]),
       orientation,
-      semanticOrientation
+      semanticOrientation,
+      traceHandoff: traceEvidence ?? null
     });
     this.#bindings.set(run.runId, binding);
     if (!planning.corridor.certified || !planning.context || planning.context.segments.length === 0 || architecturePlan?.gaps.length) {
@@ -442,6 +513,7 @@ export class NativeMcpService {
       semantic_atlas: binding?.semanticOrientation.atlas ?? null,
       semantic_coverage: binding?.semanticOrientation.coverage ?? null,
       semantic_bootstrap: Object.freeze({ status: "complete" as const, bootstrap_id: null, current_chunk: null }),
+      trace_handoff: projectTraceHandoff(binding?.traceHandoff),
       corridor: planning?.corridor ?? null,
       diagnostics: planning ? projectDiagnosticMaps(planning.diagnostics, planning.corridor) : [],
       native_contracts: planning ? projectNativeContractMaps(planning.nativeContracts, planning.corridor) : [],
@@ -572,6 +644,10 @@ export class NativeMcpService {
       result_commit_sha: run.resultCommitSha,
       permitted_next_action: run.stateRecord.permitted_next_action,
       architecture_plan: binding?.architecturePlan ?? null,
+      trace_handoff: projectTraceHandoff(binding?.traceHandoff),
+      analysis: run.artifacts.trace
+        ? Object.freeze({ kind: "trace" as const, result: run.artifacts.trace })
+        : null,
       semantic_atlas: binding?.semanticOrientation.atlas ?? null,
       semantic_coverage: binding?.semanticOrientation.coverage ?? null,
       artifacts: summarizeRunArtifacts(run.artifacts),
