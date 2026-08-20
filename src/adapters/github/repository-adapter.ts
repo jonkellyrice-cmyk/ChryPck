@@ -16,6 +16,13 @@ function fileKind(profile: RepositorySourceProfile, path: string): RepositoryFil
   return "asset";
 }
 
+function isSemanticMetadataTextPath(path: string): boolean {
+  const normalized = path.toLowerCase();
+  const name = normalized.split("/").at(-1) ?? normalized;
+  if (["readme.md", "readme.mdx", "architecture.md", "design.md", "contributing.md"].includes(name)) return true;
+  return normalized.startsWith("docs/") && /\.(md|mdx|txt)$/.test(normalized);
+}
+
 function normalizeChanges(changes: ReadonlyMap<string, string | null>): ReadonlyMap<string, string | null> {
   const output = new Map<string, string | null>();
   for (const [rawPath, content] of changes) {
@@ -51,7 +58,8 @@ export class GitHubRepositoryAdapter implements RepositoryAdapter {
   private async materialize(repository: string, sha: string, entry: GitHubRepositoryFileEntry): Promise<RepositoryFile> {
     const path = normalizeRepositoryPath(entry.path), kind = fileKind(this.profile, path);
     if (!path) throw new Error(`GitHub returned an invalid repository path: ${entry.path}`);
-    if (!isProfileSourcePath(this.profile, path) || entry.size > this.maxTextFileBytes) {
+    const readText = isProfileSourcePath(this.profile, path) || isSemanticMetadataTextPath(path);
+    if (!readText || entry.size > this.maxTextFileBytes) {
       return Object.freeze({ path, sha: entry.sha, size: entry.size, kind });
     }
     const file = await this.client.readTextFile(repository, path, sha);
