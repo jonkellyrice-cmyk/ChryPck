@@ -87,7 +87,7 @@ test("native MCP surface keeps four distinct agent-facing operations", () => {
   assert.match(CHRYPCK_TOOLS[0]!.description, /Semantic Atlas bootstrap/);
   assert.match(CHRYPCK_TOOLS[0]!.description, /trace_handoff/);
   assert.match(CHRYPCK_TOOLS[1]!.description, /server-certified Context Pack/);
-  assert.match(CHRYPCK_TOOLS[1]!.description, /arbitrary paths are never accepted/);
+  assert.match(CHRYPCK_TOOLS[1]!.description, /arbitrary paths are never accepted/i);
   assert.match(CHRYPCK_TOOLS[2]!.description, /exactly one mode/);
   assert.match(CHRYPCK_TOOLS[3]!.description, /authoritative bounded run state/);
   assert.match(CHRYPCK_TOOLS[3]!.description, /Trace artifact/);
