@@ -23,6 +23,8 @@ export type GovernedConnectorManifestCapability = {
 
 export type ChryPckDiagnosticSurface = {
   readonly id:
+    | "repository-atlas"
+    | "coverage-ledger"
     | "dependency-graph"
     | "dependency-watershed"
     | "symbol-families"
@@ -108,7 +110,7 @@ export const CHRYPCK_GOVERNED_CONNECTOR_MANIFEST: ChryPckGovernedConnectorManife
       ]),
       domain: "repository-development",
       description:
-        "Policy-enforced governed repository development. ChryPck is designed to be the model's sole repository capability: it builds an exhaustive hidden Repository Model, projects compressed dependency/runtime/symbol diagnostics, certifies a Patch Corridor and Context Pack, executes coherent bounded cross-file patches, performs Change Propagation and broad validation, and returns authoritative terminal evidence.",
+        "Policy-enforced governed repository development. ChryPck is designed to be the model's sole repository capability: it builds an exhaustive hidden Repository Model, first projects a bounded whole-repository Atlas and coverage ledger for global orientation, then projects compressed dependency/runtime/symbol diagnostics, certifies a Patch Corridor and Context Pack, executes coherent bounded cross-file patches, performs Change Propagation and broad validation, and returns authoritative terminal evidence.",
       audience: "orchestrator",
       selectionMode: "workflow-bundle",
     }),
@@ -120,8 +122,10 @@ export const CHRYPCK_GOVERNED_CONNECTOR_MANIFEST: ChryPckGovernedConnectorManife
     workflow: Object.freeze({
       strategy: "analyze-narrow-execute-validate",
       summary:
-        "Use ChryPck as a staged repository workflow: begin with general repository analysis, narrow with focused diagnostics or a direct trace when useful, expand only server-certified Context Pack segments, synthesize one coherent patch across every certified runtime/dependency touch point, execute that bounded patch only when the user authorized mutation, then read the authoritative result.",
+        "Use ChryPck as a staged repository workflow: begin with the Repository Atlas and coverage ledger for global orientation, use general repository diagnostics to narrow attention, narrow further with focused diagnostics or a direct trace when useful, expand only server-certified Context Pack segments, synthesize one coherent patch across every certified runtime/dependency touch point, execute that bounded patch only when the user authorized mutation, then read the authoritative result.",
       diagnosticSurfaces: Object.freeze([
+        Object.freeze({ id: "repository-atlas", purpose: "Provides a bounded compressed path tree over the whole immutable repository snapshot so the model knows the repository's global structural shape without receiving file contents." }),
+        Object.freeze({ id: "coverage-ledger", purpose: "States how much of the repository was snapshot, text-backed, modeled and projected, including explicit Atlas truncation so omitted structure is never mistaken for nonexistent structure." }),
         Object.freeze({ id: "dependency-graph", purpose: "Shows dependency relationships across the hidden Repository Model." }),
         Object.freeze({ id: "dependency-watershed", purpose: "Shows upstream/downstream impact around relevant files and symbols." }),
         Object.freeze({ id: "symbol-families", purpose: "Groups related declarations, implementations, handlers, callers, and state participants." }),
@@ -151,7 +155,7 @@ export const CHRYPCK_GOVERNED_CONNECTOR_MANIFEST: ChryPckGovernedConnectorManife
         Object.freeze({
           id: "general-analysis",
           toolNames: Object.freeze(["chrypck_plan"] as const),
-          guidance: "Start with chrypck_plan using the repository slug and the user's exact objective. Let ChryPck build the exhaustive model, run general diagnostics, and certify the initial Patch Corridor/Context Pack. Do not browse the repository outside ChryPck.",
+          guidance: "Start with chrypck_plan using the repository slug and the user's exact objective. Read repository_atlas and coverage first for whole-repository orientation, then let ChryPck's general diagnostics and certified Patch Corridor/Context Pack narrow attention. The Atlas is structural and bounded: if coverage reports omitted Atlas nodes, do not infer that omitted paths do not exist. Do not browse the repository outside ChryPck.",
         }),
         Object.freeze({
           id: "focused-analysis",
@@ -166,7 +170,7 @@ export const CHRYPCK_GOVERNED_CONNECTOR_MANIFEST: ChryPckGovernedConnectorManife
         Object.freeze({
           id: "cross-cutting-patch",
           toolNames: Object.freeze(["chrypck_plan", "chrypck_context"] as const),
-          guidance: "Synthesize the complete fix across the full certified runtime/dependency path. Use dependency, symbol-family, integration-surface, runtime-signal, state, native-contract and Context Pack evidence to include every necessary touch point in one coherent bounded authoring intent rather than applying isolated local edits one by one.",
+          guidance: "Synthesize the complete fix across the full certified runtime/dependency path. Use the Repository Atlas for global location/orientation and dependency, symbol-family, integration-surface, runtime-signal, state, native-contract and Context Pack evidence to include every necessary touch point in one coherent bounded authoring intent rather than applying isolated local edits one by one.",
         }),
         Object.freeze({
           id: "execute",
@@ -180,7 +184,7 @@ export const CHRYPCK_GOVERNED_CONNECTOR_MANIFEST: ChryPckGovernedConnectorManife
         }),
       ]),
       patchStrategy:
-        "Prefer one coherent cross-cutting patch that covers all certified touch points along the relevant runtime/dependency path. ChryPck is specifically designed to make multi-file fixes tractable by exposing compressed whole-repository structure first and exact source only where justified.",
+        "Prefer one coherent cross-cutting patch that covers all certified touch points along the relevant runtime/dependency path. ChryPck is specifically designed to make multi-file fixes tractable by exposing bounded whole-repository structure first, compressed objective-local relationships second, and exact source only where justified.",
       failurePolicy:
         "If ChryPck returns a policy, validation, transport, timeout or capability-gap failure, report that actual failure and preserve any returned run_id/next action. Do not claim ChryPck is unavailable merely because one call failed, and do not bypass the governed workflow with unrestricted repository tools.",
     }),
@@ -189,11 +193,11 @@ export const CHRYPCK_GOVERNED_CONNECTOR_MANIFEST: ChryPckGovernedConnectorManife
         toolName: "chrypck_plan",
         label: "Analyze and plan governed repository work",
         description:
-          "Start governed repository work by building the hidden Repository Model, projecting dependency/runtime/symbol diagnostics, certifying the Patch Corridor and Context Pack, and optionally running focused trace or bounded-event-trace analysis for a concrete bug/runtime path.",
+          "Start governed repository work by building the hidden Repository Model, returning the bounded whole-repository Atlas and coverage ledger, projecting dependency/runtime/symbol diagnostics, certifying the Patch Corridor and Context Pack, and optionally running focused trace or bounded-event-trace analysis for a concrete bug/runtime path.",
         effect: "read",
         approval: "automatic",
         returns:
-          "A bounded run identifier, repository diagnostics, trace evidence when requested, certified change/context scope, architecture-review state when requested, and the next permitted action.",
+          "A bounded run identifier, Repository Atlas, coverage ledger, repository diagnostics, trace evidence when requested, certified change/context scope, architecture-review state when requested, and the next permitted action.",
         errorBehavior:
           "Returns structured policy, analysis, timeout, or transport failure evidence. Fail-closed outcomes are authoritative and must not be bypassed with another repository capability.",
         programmaticEligible: false,
