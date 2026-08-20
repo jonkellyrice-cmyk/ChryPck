@@ -1,5 +1,6 @@
 import type { AuthoringEdit } from "../mutation/authoring-compiler.js";
 import type { ArchitectureRequest } from "../architecture/index.js";
+import type { TraceHandoffReference } from "../planning/trace-handoff.js";
 import type { SemanticBootstrapSubmissionInput } from "../semantic/types.js";
 
 export interface TraceAnalysisInput {
@@ -26,6 +27,7 @@ export interface PlanInput {
   readonly base_ref?:string;
   readonly architecture?:ArchitectureRequest;
   readonly analysis?:AnalysisInput;
+  readonly trace_handoff?:TraceHandoffReference;
   readonly semantic_bootstrap?:SemanticBootstrapSubmissionInput;
 }
 export interface ContextInput{readonly run_id:string;readonly segment_id?:string}
