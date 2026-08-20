@@ -19,7 +19,11 @@ Semantic Atlas bootstrap             (what major things are for)
         ↓
 diagnostic projections/maps          (compressed/lossy relationships)
         ↓
-Patch Corridor
+canonical bounded Trace               (optional causal analysis)
+        ↓
+certified Trace handoff               (optional analysis lineage)
+        ↓
+Patch Corridor                        (fresh mutation-scope certification)
         ↓
 certified Context Pack                (bounded exact-source expansion)
         ↓
@@ -32,7 +36,7 @@ The Structural Repository Atlas is a bounded whole-repository path/tree orientat
 
 The model does not receive arbitrary repository search/list/read primitives. If compressed evidence is insufficient, ChryPck returns a capability/abstraction gap or produces a newly justified certified context expansion; the model does not fall back to repository exploration.
 
-Model-visible diagnostic surfaces include Structural Repository Atlas, Semantic Atlas, structural/semantic coverage ledgers, dependency graph/watershed, symbol families, effect atlas, integration surfaces, runtime signals, state namespaces, native-contract evidence, Patch Corridor, Context Pack, runtime probes, and Change Propagation results.
+Model-visible diagnostic surfaces include Structural Repository Atlas, Semantic Atlas, structural/semantic coverage ledgers, dependency graph/watershed, symbol families, effect atlas, integration surfaces, runtime signals, state namespaces, native-contract evidence, runtime probes, canonical Trace, analysis lineage, Patch Corridor, Context Pack, and Change Propagation results.
 
 ## Mandatory first-pass Semantic Atlas bootstrap
 
@@ -50,26 +54,43 @@ The connected host LLM itself performs the semantic synthesis; ChryPck does not 
 3. Cite one or more server-issued `evidence_refs` for every semantic claim.
 4. Call `chrypck_plan` again with `semantic_bootstrap { bootstrap_id, chunk_id, interpretations }`.
 5. Repeat chunk by chunk until ChryPck returns `semantic_bootstrap.status = "complete"`.
-6. Only then continue into general diagnostics, traces, certified source, patch synthesis, or execution.
+6. Only then continue into general diagnostics, Trace, certified source, patch synthesis, or execution.
 
 ChryPck validates submitted evidence IDs, caps inferential confidence, rejects unsupported claims, and binds the bootstrap to the exact repository, immutable commit, and project profile. A lost in-memory bootstrap session fails safely by restarting the bounded semantic pass rather than guessing.
 
 Completed Semantic Atlases are cached by repository + immutable commit + project profile + semantic schema version. The cache is deliberately abstracted from the semantic machinery; the initial implementation uses a bounded in-memory LRU so durable persistence can be added later without changing the MCP workflow.
 
+## Canonical Trace and certified Trace-to-plan handoff
+
+ChryPck exposes one trace analysis mode: `analysis.kind = "trace"`. Trace is the bounded evidence-backed BEFT-derived engine. It can resolve an evidence-supported source from the objective or accept an explicit `sourceSymbol`, optional `targetEffect`, and bounded hop/branch/file/symbol controls. A useful Trace returns a bounded path, blocker or terminal effect when found, explicit excluded/pruned branches, evidence records, and a path certificate.
+
+Trace is a read-only analysis run. Its result is persisted as an authoritative run artifact and is **not** itself a mutation plan. When ChryPck returns `create_normal_plan_with_trace_handoff`, the host creates a distinct normal `chrypck_plan` call with:
+
+```text
+trace_handoff: {
+  run_id: <trace run id>,
+  certificate_id?: <trace certificate id>
+}
+```
+
+ChryPck accepts that lineage only when the stored Trace belongs to the same repository, immutable commit, and project profile and has a usable `CERTIFIED` or `BLOCKED` path certificate. Unknown, mismatched, forged, or uncertified Trace lineage fails closed.
+
+Accepted Trace lineage is **planning evidence only**. The new normal plan still builds and independently certifies a fresh Patch Corridor. A file merely appearing in the Trace path is not automatically authorized for mutation or exact-source expansion. Context Pack remains limited to the files certified by the current normal plan.
+
 ## Model-facing MCP surface
 
 Exactly four MCP tools are exposed:
 
-- `chrypck_plan` — begin all repository work; perform mandatory chunked Semantic Atlas bootstrap when needed, then return Structural + Semantic orientation, diagnostics, certified Patch Corridor/Context Pack, and optional focused traces/architecture planning.
-- `chrypck_context` — return only the certified Context Pack after bootstrap/planning, optionally one server-issued exact-source segment.
+- `chrypck_plan` — begin all repository work; perform mandatory chunked Semantic Atlas bootstrap when needed, return Structural + Semantic orientation and diagnostics, optionally run canonical Trace, or create a fresh normal plan from certified `trace_handoff` lineage.
+- `chrypck_context` — return only the certified Context Pack for a READY normal plan, optionally one server-issued exact-source segment.
 - `chrypck_execute` — execute typed edits or an explicitly approved server-issued path-move plan through native mutation, propagation, validation, and atomic publication.
-- `chrypck_result` — return bounded run state, semantic orientation when available, telemetry, validation/propagation outcome, and terminal evidence.
+- `chrypck_result` — return bounded authoritative run state, including persisted Trace/certificate or accepted Trace lineage where applicable, semantic orientation, telemetry, validation/propagation outcome, and terminal evidence.
 
 There is no model-facing GitHub search, arbitrary file read, arbitrary GitHub write, shell, workflow-log reader, or workflow dispatcher.
 
 ## Governed connector manifest
 
-ChryPck publishes a credential-free, versioned governed-connector manifest at `GET /connector-manifest`. The manifest is the service-owned description of its connector identity, MCP transport path, workflow-bundle behavior, all Structural/Semantic Atlas surfaces, mandatory semantic-bootstrap procedure, trace modes, and the effect, approval, return, and error contracts for all four public MCP tools.
+ChryPck publishes a credential-free, versioned governed-connector manifest at `GET /connector-manifest`. The manifest is the service-owned description of its connector identity, MCP transport path, workflow-bundle behavior, Structural/Semantic Atlas surfaces, mandatory semantic-bootstrap procedure, canonical Trace, certified Trace-to-plan handoff, and the effect, approval, return, and error contracts for all four public MCP tools.
 
 The manifest deliberately does not contain deployment credentials, application-specific project scope, enabled state, or user authorization. A host orchestrator such as Lemonade owns those installation and governance decisions while ChryPck remains authoritative for what the service is and which capabilities it exposes.
 
@@ -80,17 +101,19 @@ The manifest deliberately does not contain deployment credentials, application-s
 2. Structural Atlas + structural coverage
 3. Semantic Atlas + semantic coverage
 4. general dependency/runtime/symbol/state/native-contract diagnostics
-5. focused trace or bounded-event-trace when useful
-6. certified Context Pack exact-source expansion only where needed
-7. one coherent cross-cutting patch across the certified path
-8. user-authorized execute
-9. Change Propagation + broad validation + atomic publication
-10. authoritative result
+5. canonical Trace when causal/runtime investigation is useful
+6. if Trace was used, create a distinct normal plan with certified trace_handoff
+7. fresh Patch Corridor certification for the current normal plan
+8. certified Context Pack exact-source expansion only where needed
+9. one coherent cross-cutting patch across the currently certified path
+10. user-authorized execute
+11. Change Propagation + broad validation + atomic publication
+12. authoritative result
 ```
 
-Structural Atlas tells the model **where things are**. Semantic Atlas tells it **what major things are for**. The hidden Repository Model and diagnostics tell it **how things are actually connected**. Context Pack provides **exact implementation only where justified**.
+Structural Atlas tells the model **where things are**. Semantic Atlas tells it **what major things are for**. The hidden Repository Model and diagnostics tell it **how things are connected**. Trace provides bounded causal evidence. Trace handoff preserves that evidence across analysis and planning without granting mutation authority. Context Pack provides **exact implementation only where justified by the current certified plan**.
 
-If those layers disagree, deterministic repository evidence, native contracts, traces, and certified source override semantic interpretation.
+If those layers disagree, deterministic repository evidence, native contracts, Trace evidence, the current Patch Corridor, and certified source override semantic interpretation.
 
 ## Deliberate architecture operations
 
@@ -99,6 +122,8 @@ The Domain Decomposer and Path Mover remain intentionally less automatic than or
 `chrypck_plan` can request `architecture.kind = "decompose"` to receive a compressed decomposition proposal derived from the hidden Repository Model. The proposal starts unapproved and authorizes only its proposed new target paths; the reviewed extraction is then supplied as ordinary bounded authoring intent.
 
 `architecture.kind = "move"` produces a server-issued move plan plus dependency-derived import rewrites. After review, `chrypck_execute` may approve that exact `plan_id`; ChryPck executes the already-computed plan without recomputing or broadening it.
+
+Trace handoff is deliberately separate from architecture planning; a `trace_handoff` normal plan cannot simultaneously request a new architecture operation.
 
 ## Native execution spine
 
@@ -110,7 +135,9 @@ plan
  → Structural Atlas
  → mandatory Semantic Atlas bootstrap if uncached
  → diagnostics
- → Patch Corridor + Context Pack
+ → optional canonical Trace artifact/certificate
+ → optional certified Trace-to-plan lineage
+ → fresh Patch Corridor + Context Pack
  → optional deliberate architecture plan
  → typed mutation staging
  → Change Propagation
