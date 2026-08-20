@@ -60,6 +60,11 @@ const traceOptionsSchema = z.object({
   certifyMode: z.enum(["strict", "relaxed"]).optional().describe("Reserved trace certification posture; strict remains the default behavior.")
 }).optional().describe("Optional scope and traversal controls for the canonical bounded trace engine.");
 
+const traceHandoffSchema = z.object({
+  run_id: z.string().trim().min(1).describe("Authoritative prior ChryPck Trace run whose certified path evidence should inform this new normal plan."),
+  certificate_id: z.string().trim().min(1).optional().describe("Optional Trace certificate ID copied from the prior Trace result. When supplied it must exactly match the stored authoritative certificate.")
+}).describe("Certified Trace-to-plan lineage. Use only on a normal plan after Trace returns create_normal_plan_with_trace_handoff; do not combine with analysis or architecture.");
+
 const executeSchema = z.union([
   z.object({
     run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."),
@@ -97,9 +102,9 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_plan",
     {
       title: "Plan Governed Change",
-      description: "Start all governed repository work. On the first uncached plan for a repository commit/profile, ChryPck intentionally stops before ordinary diagnostics and returns semantic_bootstrap.status='required' plus one bounded metadata chunk. The host LLM must interpret every region in that chunk using only cited evidence_refs, call chrypck_plan again with semantic_bootstrap, repeat until semantic_bootstrap.status='complete', and only then continue the user's repository task. Once bootstrapped, each plan returns repository_atlas + coverage for structural orientation, semantic_atlas + semantic_coverage for repository purpose/subsystem responsibilities/boundaries, compressed diagnostics and certified corridor/context, optional canonical trace analysis, and permitted_next_action. Trace is the single bounded evidence-backed BEFT-derived tracing mode; it may auto-resolve an evidence-supported entrypoint from the objective or accept an explicit sourceSymbol/targetEffect. Semantic metadata is evidence-backed orientation, never mutation authority or a substitute for diagnostics/certified source.",
+      description: "Start all governed repository work. On the first uncached plan for a repository commit/profile, ChryPck intentionally stops before ordinary diagnostics and returns semantic_bootstrap.status='required' plus one bounded metadata chunk. The host LLM must complete that evidence-grounded bootstrap before ordinary repository work. Once bootstrapped, each plan returns Structural/Semantic orientation, compressed diagnostics and a certified corridor/context, with optional canonical Trace analysis. Trace is the single bounded evidence-backed BEFT-derived tracing mode and is persisted as an authoritative run artifact. When Trace returns permitted_next_action='create_normal_plan_with_trace_handoff', make a new normal chrypck_plan call with trace_handoff {run_id, optional certificate_id}; ChryPck validates same repository/commit/profile lineage and feeds only the certified Trace path evidence into fresh Patch Corridor certification. Trace evidence never directly grants mutation authority or exact-source access.",
       inputSchema: z.object({
-        repository: z.string().min(1).describe("Repository slug. For the configured ChryPck owner, prefer the bare repository name (for example LEMONade_ORC); owner/name and GitHub URLs remain accepted when needed."),
+        repository: z.string().min(1).describe("Repository slug. For the configured ChryPck owner, prefer the bare repository name (for example LEMONADE_ORC); owner/name and GitHub URLs remain accepted when needed."),
         objective: z.string().trim().min(1).describe("Exact user-authorized repository outcome to investigate or implement. Keep the same objective while completing a semantic bootstrap continuation."),
         base_ref: z.string().trim().min(1).optional().describe("Existing branch/ref to inspect; server policy supplies the default when omitted."),
         architecture: architectureSchema.optional().describe("Optional read-only structural planning request. Move/decompose plans require later explicit execution/approval."),
@@ -108,7 +113,8 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
           sourceSymbol: z.string().trim().min(1).optional().describe("Optional known source symbol. Omit it when ChryPck should resolve an evidence-supported entrypoint from the objective and certified corridor."),
           targetEffect: z.string().trim().min(1).optional().describe("Optional downstream effect/symbol the trace should try to certify."),
           options: traceOptionsSchema
-        }).optional().describe("Optional read-only canonical bounded trace. This is the BEFT-derived trace engine; bounded-event-trace is no longer a separate public mode."),
+        }).optional().describe("Optional read-only canonical bounded Trace. Trace and normal planning are separate run identities; do not combine this with trace_handoff."),
+        trace_handoff: traceHandoffSchema.optional(),
         semantic_bootstrap: semanticBootstrapSchema.optional()
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
@@ -120,8 +126,8 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_context",
     {
       title: "Read Certified Context",
-      description: "Read server-certified Context Pack evidence for an existing READY run after any required Semantic Atlas bootstrap and normal plan complete. Omit segment_id for the certified index; provide one server-issued segment_id for one bounded source expansion. Never accepts arbitrary repository paths. Returns the next permitted action; failures return structured code/message data.",
-      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."), segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the certified index.") }),
+      description: "Read server-certified Context Pack evidence for an existing READY normal-plan run after any required Semantic Atlas bootstrap and planning complete. A Trace run itself does not expose Context Pack source; first create a normal plan, using trace_handoff when Trace evidence should inform its corridor. Omit segment_id for the certified index; provide one server-issued segment_id for one bounded source expansion. Never accepts arbitrary repository paths.",
+      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by a normal chrypck_plan."), segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the certified index.") }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async input => toolBoundary(() => nativeService.context(input))
@@ -131,7 +137,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_execute",
     {
       title: "Execute Governed Change",
-      description: "Mutate an existing fully bootstrapped and planned run using exactly one mode: typed bounded authoring_intent edits or explicit architecture_approval of a server-issued reviewed plan. ChryPck performs propagation, validation, and atomic publication. Failures return structured code/message data; policy failures are authoritative rather than transient retry signals.",
+      description: "Mutate an existing fully bootstrapped and normally planned READY run using exactly one mode: typed bounded authoring_intent edits or explicit architecture_approval of a server-issued reviewed plan. Trace/trace_handoff evidence may inform the certified plan but never widens execution authority by itself. ChryPck performs propagation, validation, and atomic publication.",
       inputSchema: executeSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
     },
@@ -142,8 +148,8 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_result",
     {
       title: "Read Governed Result",
-      description: "Read the authoritative bounded run state/outcome for an existing run, especially after execution or failure. Returns project profile, semantic orientation when available, propagation/validation evidence, telemetry, terminal state, and other bounded native evidence. Failures return structured code/message data.",
-      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan.") }),
+      description: "Read the authoritative bounded run state/outcome for an existing run. Trace runs retain their full authoritative Trace artifact and certificate here; normal plans report any accepted trace_handoff lineage alongside semantic orientation, propagation/validation evidence, telemetry, terminal state, and other bounded native evidence.",
+      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan." ) }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async input => toolBoundary(() => nativeService.result(input))
@@ -236,6 +242,7 @@ export function buildHealthPayload(runtime: ChryPckServiceRuntime) {
     repository_visibility: "structural-atlas-plus-semantic-atlas-plus-diagnostic-projection-plus-certified-context",
     semantic_bootstrap: "host-llm-chunked-required-on-uncached-repository-state",
     trace_engine: "bounded-evidence-backed-beft-canonical-trace",
+    trace_plan_handoff: "certified-analysis-lineage",
     user_handle: userHandle,
     common_repos: commonRepos,
     project_profiles: runtime.projectProfiles.list().map(profile => profile.id)
