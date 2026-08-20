@@ -129,7 +129,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_plan",
     {
       title: "Plan Governed Change",
-      description: "Start governed repository work. Use first for repository inspection or change. Returns run_id, bounded diagnostics/certified corridor, context availability, architecture-review state, and permitted_next_action. Failures return a structured code and message.",
+      description: "Start governed repository work. Use first for repository inspection or change. Returns run_id, a bounded whole-repository repository_atlas, an explicit coverage ledger, bounded diagnostics/certified corridor, context availability, architecture-review state, and permitted_next_action. Read the Atlas and coverage first for global orientation, then use the lossy diagnostics to narrow attention; omitted Atlas nodes are explicitly counted and must not be treated as nonexistent. Failures return a structured code and message.",
       inputSchema: z.object({
         repository: z.string().min(1).describe("Repository slug. For the configured ChryPck owner, prefer the bare repository name (for example LEMONade_ORC); owner/name and GitHub URLs remain accepted when needed."),
         objective: z.string().trim().min(1).describe("Exact user-authorized repository outcome to investigate or implement."),
@@ -303,7 +303,7 @@ export function buildHealthPayload(runtime: ChryPckServiceRuntime) {
     service: "chrypck",
     version: "1.0.0",
     execution: "native",
-    repository_visibility: "diagnostic-projection-plus-certified-context",
+    repository_visibility: "repository-atlas-plus-diagnostic-projection-plus-certified-context",
     user_handle: userHandle,
     common_repos: commonRepos,
     project_profiles: runtime.projectProfiles.list().map(profile => profile.id)
