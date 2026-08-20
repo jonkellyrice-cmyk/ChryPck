@@ -142,45 +142,52 @@ export const CHRYPCK_GOVERNED_CONNECTOR_MANIFEST: ChryPckGovernedConnectorManife
     failurePolicy: "If ChryPck returns a semantic-bootstrap restart, policy, trace certification gap, validation, transport, timeout or capability-gap result, follow the actual permitted next action and preserve any returned run_id/bootstrap_id. Do not claim ChryPck is unavailable merely because one call failed, and do not bypass the governed workflow with unrestricted repository tools."
   }),
   capabilities: Object.freeze([
-    Object.freeze({
-      toolName: "chrypck_plan",
-      label: "Bootstrap, analyze and plan governed repository work",
-      description: "Start all governed repository work. On an uncached repository state it first runs a mandatory host-LLM Semantic Atlas bootstrap in bounded metadata chunks. Once complete, it returns Structural/Semantic orientation and coverage, compressed dependency/runtime/symbol/state diagnostics, a certified Patch Corridor and Context Pack, and optionally the single canonical bounded evidence-backed Trace analysis. Trace is BEFT-derived and replaces the former separate heuristic trace and bounded-event-trace modes.",
-      effect: "read",
-      approval: "automatic",
-      returns: "Either the next mandatory semantic_bootstrap metadata chunk, or after bootstrap completion a bounded run identifier, Repository Atlas, structural coverage ledger, Semantic Atlas, semantic coverage ledger, repository diagnostics, canonical trace evidence when requested, certified change/context scope, architecture-review state when requested, and the next permitted action.",
-      errorBehavior: "Returns structured bootstrap-restart, policy, trace-certification, analysis, timeout or transport failure evidence. Fail-closed outcomes are authoritative and must not be bypassed with another repository capability.",
-      programmaticEligible: false
-    }),
-    Object.freeze({
-      toolName: "chrypck_context",
-      label: "Read certified repository context",
-      description: "Read only server-certified Context Pack evidence for an existing ChryPck run after required semantic bootstrap/orientation and diagnostics/trace identify exact touch points, optionally expanding one server-issued segment for implementation understanding or patch authoring.",
-      effect: "read",
-      approval: "automatic",
-      returns: "The certified context index or one bounded server-issued exact-source context segment together with the run's next permitted action.",
-      errorBehavior: "Returns structured run, bootstrap-state, policy or transport failure evidence. Arbitrary repository paths are never accepted as a fallback.",
-      programmaticEligible: false
-    }),
-    Object.freeze({
-      toolName: "chrypck_execute",
-      label: "Execute governed repository change",
-      description: "Execute the user-authorized coherent bounded cross-file patch or explicit approval of an already-issued architecture plan only after semantic bootstrap and normal planning complete, through staging, dependency-aware Change Propagation, broad validation and atomic publication.",
-      effect: "write",
-      approval: "explicit-intent",
-      returns: "The governed execution outcome, including publication state, propagation/validation evidence, semantic orientation reference and the resulting permitted next action.",
-      errorBehavior: "Returns structured bootstrap-state, policy, validation, conflict, timeout or transport failure evidence. A failed or denied mutation must not be simulated, broadened or retried through an unrestricted repository tool.",
-      programmaticEligible: false
-    }),
-    Object.freeze({
-      toolName: "chrypck_result",
-      label: "Read governed repository result",
-      description: "Read the authoritative bounded state and outcome of an existing ChryPck run after semantic bootstrap/planning, tracing, execution, timeout or failure.",
-      effect: "read",
-      approval: "automatic",
-      returns: "Bounded run state, project profile, semantic orientation when available, diagnostics, propagation and validation evidence, telemetry, terminal status, publication state and other authoritative result metadata.",
-      errorBehavior: "Returns structured run or transport failure evidence. Missing or failed run state must be reported rather than inferred.",
-      programmaticEligible: false
-    })
+    Object.freeze({ toolName: "chrypck_plan", label: "Bootstrap, analyze and plan governed repository work", description: "Start all governed repository work. On an uncached repository state it first runs a mandatory host-LLM Semantic Atlas bootstrap in bounded metadata chunks. Once complete, it returns Structural/Semantic orientation and coverage, compressed dependency/runtime/symbol/state diagnostics, a certified Patch Corridor and Context Pack, and optionally the single canonical bounded evidence-backed Trace analysis. Trace is BEFT-derived and replaces the former separate heuristic trace and bounded-event-trace modes.", effect: "read", approval: "automatic", returns: "Either the next mandatory semantic_bootstrap metadata chunk, or after bootstrap completion a bounded run identifier, Repository Atlas, structural coverage ledger, Semantic Atlas, semantic coverage ledger, repository diagnostics, canonical trace evidence when requested, certified change/context scope, architecture-review state when requested, and the next permitted action.", errorBehavior: "Returns structured bootstrap-restart, policy, trace-certification, analysis, timeout or transport failure evidence. Fail-closed outcomes are authoritative and must not be bypassed with another repository capability.", programmaticEligible: false }),
+    Object.freeze({ toolName: "chrypck_context", label: "Read certified repository context", description: "Read only server-certified Context Pack evidence for an existing ChryPck run after required semantic bootstrap/orientation and diagnostics/trace identify exact touch points, optionally expanding one server-issued segment for implementation understanding or patch authoring.", effect: "read", approval: "automatic", returns: "The certified context index or one bounded server-issued exact-source context segment together with the run's next permitted action.", errorBehavior: "Returns structured run, bootstrap-state, policy or transport failure evidence. Arbitrary repository paths are never accepted as a fallback.", programmaticEligible: false }),
+    Object.freeze({ toolName: "chrypck_execute", label: "Execute governed repository change", description: "Execute the user-authorized coherent bounded cross-file patch or explicit approval of an already-issued architecture plan only after semantic bootstrap and normal planning complete, through staging, dependency-aware Change Propagation, broad validation and atomic publication.", effect: "write", approval: "explicit-intent", returns: "The governed execution outcome, including publication state, propagation/validation evidence, semantic orientation reference and the resulting permitted next action.", errorBehavior: "Returns structured bootstrap-state, policy, validation, conflict, timeout or transport failure evidence. A failed or denied mutation must not be simulated, broadened or retried through an unrestricted repository tool.", programmaticEligible: false }),
+    Object.freeze({ toolName: "chrypck_result", label: "Read governed repository result", description: "Read the authoritative bounded state and outcome of an existing ChryPck run after semantic bootstrap/planning, tracing, execution, timeout or failure.", effect: "read", approval: "automatic", returns: "Bounded run state, project profile, semantic orientation when available, diagnostics, propagation and validation evidence, telemetry, terminal status, publication state and other authoritative result metadata.", errorBehavior: "Returns structured run or transport failure evidence. Missing or failed run state must be reported rather than inferred.", programmaticEligible: false })
   ])
 });
+
+validateManifest(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST);
+
+export function getChryPckGovernedConnectorManifest(): ChryPckGovernedConnectorManifest {
+  return CHRYPCK_GOVERNED_CONNECTOR_MANIFEST;
+}
+
+function validateManifest(manifest: ChryPckGovernedConnectorManifest): void {
+  const manifestToolNames = manifest.capabilities.map(capability => capability.toolName).sort((left, right) => left.localeCompare(right));
+  const runtimeToolNames = [...CHRYPCK_TOOL_NAMES].sort((left, right) => left.localeCompare(right));
+  if (manifestToolNames.length !== runtimeToolNames.length || manifestToolNames.some((toolName, index) => toolName !== runtimeToolNames[index])) {
+    throw new Error("ChryPck governed connector manifest must describe exactly the exported MCP tool surface.");
+  }
+  if (manifest.connector.aliases.length === 0 || manifest.connector.aliases.some(alias => !alias.trim())) {
+    throw new Error("ChryPck governed connector manifest requires non-empty aliases.");
+  }
+  if (manifest.workflow.phases.length < 8) {
+    throw new Error("ChryPck governed connector manifest requires the complete semantic-bootstrap-through-verification workflow.");
+  }
+  const phaseIds = new Set(manifest.workflow.phases.map(phase => phase.id));
+  if (!phaseIds.has("semantic-bootstrap") || !phaseIds.has("repository-orientation")) {
+    throw new Error("ChryPck governed connector manifest must publish semantic bootstrap and repository orientation phases.");
+  }
+  const surfaceIds = new Set(manifest.workflow.diagnosticSurfaces.map(surface => surface.id));
+  if (!surfaceIds.has("semantic-atlas") || !surfaceIds.has("semantic-coverage-ledger")) {
+    throw new Error("ChryPck governed connector manifest must publish Semantic Atlas orientation surfaces.");
+  }
+  const analysisKinds = manifest.workflow.analysisModes.map(mode => mode.kind);
+  if (analysisKinds.length !== 1 || analysisKinds[0] !== "trace") {
+    throw new Error("ChryPck governed connector manifest must publish exactly one canonical trace analysis mode.");
+  }
+  for (const capability of manifest.capabilities) {
+    if (!capability.label.trim() || !capability.description.trim() || !capability.returns.trim() || !capability.errorBehavior.trim()) {
+      throw new Error(`ChryPck governed connector capability ${capability.toolName} is incomplete.`);
+    }
+    if (capability.effect !== "read" && capability.approval === "automatic") {
+      throw new Error(`ChryPck governed connector capability ${capability.toolName} cannot mutate automatically.`);
+    }
+    if (capability.programmaticEligible && (capability.effect !== "read" || capability.approval !== "automatic")) {
+      throw new Error(`ChryPck governed connector capability ${capability.toolName} is not eligible for programmatic execution.`);
+    }
+  }
+}
