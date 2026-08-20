@@ -35,6 +35,7 @@ export interface ContextContinuation {
 export interface ContextSegment {
   readonly id: string;
   readonly path: string;
+  readonly sourceSha256: string;
   readonly content: string;
   readonly evidence: readonly string[];
   readonly symbols: readonly ContextSymbol[];
@@ -225,6 +226,7 @@ export function buildContextPack(corridor: PatchCorridor, model: RepositoryModel
     segments.push(Object.freeze({
       id: segmentId,
       path: row.path,
+      sourceSha256: createHash("sha256").update(file.text).digest("hex"),
       content: segmentContent(built.symbols),
       evidence: Object.freeze([...row.reasons]),
       symbols: Object.freeze(built.symbols),

@@ -14,7 +14,7 @@ function fixture() {
       "Hooks.on('ready', run);",
       "game.settings.set('frame-conn', 'ready', true);",
       "document.setFlag('frame-conn', 'mode', 'x');"
-    ].join("\\n") }
+    ].join("\n") }
   ], "2026-01-01T00:00:00.000Z");
 }
 
