@@ -76,6 +76,26 @@ const architectureSchema = z.discriminatedUnion("kind", [
   })
 ]);
 
+const semanticClaimSchema = z.object({
+  text: z.string().trim().min(1).max(600).describe("Concise architectural semantic claim grounded only in the supplied region metadata."),
+  evidence_refs: z.array(z.string().trim().min(1)).min(1).describe("One or more evidence IDs from the same server-issued semantic region that support this claim.")
+});
+
+const semanticInterpretationSchema = z.object({
+  region_id: z.string().trim().min(1).describe("Exact server-issued semantic region ID from the current bootstrap chunk."),
+  name: z.string().trim().min(1).max(120).optional().describe("Optional clearer human-readable region name supported by the metadata."),
+  purpose: semanticClaimSchema.optional().describe("What this repository/region exists to accomplish."),
+  responsibilities: z.array(semanticClaimSchema).max(5).optional().describe("Primary responsibilities owned by this region."),
+  does_not_own: z.array(semanticClaimSchema).max(4).optional().describe("Important responsibility boundaries only when supported by evidence."),
+  key_flows: z.array(semanticClaimSchema).max(5).optional().describe("Important architectural/runtime flows through this region.")
+});
+
+const semanticBootstrapSchema = z.object({
+  bootstrap_id: z.string().trim().min(1).describe("Server-issued semantic bootstrap identifier from the immediately preceding chrypck_plan response."),
+  chunk_id: z.string().trim().min(1).describe("Current server-issued semantic metadata chunk identifier."),
+  interpretations: z.array(semanticInterpretationSchema).min(1).describe("Exactly one semantic interpretation for every region in the current chunk. ChryPck validates evidence references before accepting it.")
+}).describe("Mandatory host-LLM semantic bootstrap continuation. Supply only when chrypck_plan returned semantic_bootstrap.status='required'.");
+
 const executeSchema = z.union([
   z.object({
     run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."),
@@ -129,10 +149,10 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_plan",
     {
       title: "Plan Governed Change",
-      description: "Start governed repository work. Use first for repository inspection or change. Returns run_id, a bounded whole-repository repository_atlas, an explicit coverage ledger, bounded diagnostics/certified corridor, context availability, architecture-review state, and permitted_next_action. Read the Atlas and coverage first for global orientation, then use the lossy diagnostics to narrow attention; omitted Atlas nodes are explicitly counted and must not be treated as nonexistent. Failures return a structured code and message.",
+      description: "Start all governed repository work. On the first uncached plan for a repository commit/profile, ChryPck intentionally stops before ordinary diagnostics and returns semantic_bootstrap.status='required' plus one bounded metadata chunk. The host LLM must interpret every region in that chunk using only cited evidence_refs, call chrypck_plan again with semantic_bootstrap, repeat until semantic_bootstrap.status='complete', and only then continue the user's repository task. Once bootstrapped, each plan returns repository_atlas + coverage for structural orientation, semantic_atlas + semantic_coverage for repository purpose/subsystem responsibilities/boundaries, compressed diagnostics and certified corridor/context, optional trace analysis, and permitted_next_action. Semantic metadata is evidence-backed orientation, never mutation authority or a substitute for diagnostics/certified source.",
       inputSchema: z.object({
         repository: z.string().min(1).describe("Repository slug. For the configured ChryPck owner, prefer the bare repository name (for example LEMONade_ORC); owner/name and GitHub URLs remain accepted when needed."),
-        objective: z.string().trim().min(1).describe("Exact user-authorized repository outcome to investigate or implement."),
+        objective: z.string().trim().min(1).describe("Exact user-authorized repository outcome to investigate or implement. Keep the same objective while completing a semantic bootstrap continuation."),
         base_ref: z.string().trim().min(1).optional().describe("Existing branch/ref to inspect; server policy supplies the default when omitted."),
         architecture: architectureSchema.optional().describe("Optional read-only structural planning request. Move/decompose plans require later explicit execution/approval."),
         analysis: z.union([
@@ -157,7 +177,8 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
               terminateOnFirstBlocker: z.boolean().optional().describe("Stop once the first certifiable blocker is found.")
             }).optional().describe("Optional bounded-event-trace scope controls.")
           })
-        ]).optional().describe("Optional read-only diagnostic mode used during planning.")
+        ]).optional().describe("Optional read-only diagnostic mode used after any required semantic bootstrap completes."),
+        semantic_bootstrap: semanticBootstrapSchema.optional()
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
@@ -168,7 +189,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_context",
     {
       title: "Read Certified Context",
-      description: "Read server-certified Context Pack evidence for an existing READY run. Omit segment_id for the certified index; provide one server-issued segment_id for one bounded source expansion. Never accepts arbitrary repository paths. Returns the next permitted action; failures return structured code/message data.",
+      description: "Read server-certified Context Pack evidence for an existing READY run after any required Semantic Atlas bootstrap and normal plan complete. Omit segment_id for the certified index; provide one server-issued segment_id for one bounded source expansion. Never accepts arbitrary repository paths. Returns the next permitted action; failures return structured code/message data.",
       inputSchema: z.object({
         run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."),
         segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the certified index.")
@@ -182,7 +203,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_execute",
     {
       title: "Execute Governed Change",
-      description: "Mutate an existing planned run using exactly one mode: typed bounded authoring_intent edits or explicit architecture_approval of a server-issued reviewed plan. ChryPck performs propagation, validation, and atomic publication. Failures return structured code/message data; policy failures are authoritative rather than transient retry signals.",
+      description: "Mutate an existing fully bootstrapped and planned run using exactly one mode: typed bounded authoring_intent edits or explicit architecture_approval of a server-issued reviewed plan. ChryPck performs propagation, validation, and atomic publication. Failures return structured code/message data; policy failures are authoritative rather than transient retry signals.",
       inputSchema: executeSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
     },
@@ -193,7 +214,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_result",
     {
       title: "Read Governed Result",
-      description: "Read the authoritative bounded run state/outcome for an existing run, especially after execution or failure. Returns project profile, propagation/validation evidence, telemetry, terminal state, and other bounded native evidence. Failures return structured code/message data.",
+      description: "Read the authoritative bounded run state/outcome for an existing run, especially after execution or failure. Returns project profile, semantic orientation when available, propagation/validation evidence, telemetry, terminal state, and other bounded native evidence. Failures return structured code/message data.",
       inputSchema: z.object({
         run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan.")
       }),
@@ -227,6 +248,9 @@ export function createChryPckServiceRuntime(env: NodeJS.ProcessEnv = process.env
     allowedRepositories: config.allowedRepositories,
     defaultTargetRef: config.defaultTargetRef,
     maxMutationFileBytes: config.maxMutationFileBytes,
+    semanticMaxRegions: config.semanticMaxRegions,
+    semanticRegionsPerChunk: config.semanticRegionsPerChunk,
+    semanticCacheEntries: config.semanticCacheEntries,
     projectProfiles
   });
   return { config, projectProfiles, nativeService };
@@ -303,7 +327,8 @@ export function buildHealthPayload(runtime: ChryPckServiceRuntime) {
     service: "chrypck",
     version: "1.0.0",
     execution: "native",
-    repository_visibility: "repository-atlas-plus-diagnostic-projection-plus-certified-context",
+    repository_visibility: "structural-atlas-plus-semantic-atlas-plus-diagnostic-projection-plus-certified-context",
+    semantic_bootstrap: "host-llm-chunked-required-on-uncached-repository-state",
     user_handle: userHandle,
     common_repos: commonRepos,
     project_profiles: runtime.projectProfiles.list().map(profile => profile.id)

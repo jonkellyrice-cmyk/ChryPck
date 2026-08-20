@@ -28,8 +28,50 @@ function serviceOptions() {
     allowedRepositories: new Set(["owner/repo"]),
     defaultTargetRef: "main",
     maxMutationFileBytes: 4096,
+    semanticMaxRegions: 8,
+    semanticRegionsPerChunk: 2,
+    semanticCacheEntries: 8,
     projectProfiles: createBuiltinProjectProfileRegistry()
   };
+}
+
+async function completeSemanticBootstrap(
+  service: NativeMcpService,
+  input: { repository: string; objective: string; base_ref?: string }
+): Promise<any> {
+  let response: any = await service.plan(input);
+  let iterations = 0;
+  while (response.semantic_bootstrap?.status === "required") {
+    iterations += 1;
+    assert.ok(iterations < 20, "semantic bootstrap must remain bounded");
+    const chunk = response.semantic_bootstrap.current_chunk;
+    assert.ok(chunk);
+    const interpretations = chunk.regions.map((region: any) => {
+      const evidenceId = String(region.evidence?.[0]?.id ?? "");
+      assert.ok(evidenceId);
+      return {
+        region_id: region.id,
+        name: region.name_hint,
+        purpose: {
+          text: `${region.name_hint} provides the repository responsibilities represented by this bounded metadata region.`,
+          evidence_refs: [evidenceId]
+        },
+        responsibilities: [{
+          text: `Maintain the behavior and boundaries evidenced for ${region.name_hint}.`,
+          evidence_refs: [evidenceId]
+        }]
+      };
+    });
+    response = await service.plan({
+      ...input,
+      semantic_bootstrap: {
+        bootstrap_id: chunk.bootstrap_id,
+        chunk_id: chunk.chunk_id,
+        interpretations
+      }
+    });
+  }
+  return response;
 }
 
 test("native MCP surface keeps four distinct agent-facing operations", () => {
@@ -42,18 +84,34 @@ test("native MCP surface keeps four distinct agent-facing operations", () => {
   assert.equal(new Set(descriptions).size, CHRYPCK_TOOLS.length);
 
   assert.match(CHRYPCK_TOOLS[0]!.description, /Start governed repository work/);
+  assert.match(CHRYPCK_TOOLS[0]!.description, /Semantic Atlas bootstrap/);
   assert.match(CHRYPCK_TOOLS[1]!.description, /server-certified Context Pack/);
   assert.match(CHRYPCK_TOOLS[1]!.description, /arbitrary paths are never accepted/);
   assert.match(CHRYPCK_TOOLS[2]!.description, /exactly one mode/);
   assert.match(CHRYPCK_TOOLS[3]!.description, /authoritative bounded run state/);
 });
 
-test("live native service exposes bounded plan/context/execute/result semantics", async () => {
+test("first uncached plan blocks ordinary work until the host LLM completes semantic bootstrap", async () => {
+  const service = new NativeMcpService(new MemoryRepository(), serviceOptions());
+  const first: any = await service.plan({ repository: "owner/repo", objective: "provider", base_ref: "main" });
+  assert.equal(first.semantic_bootstrap.status, "required");
+  assert.equal(first.semantic_atlas, null);
+  assert.equal(first.context_available, false);
+  assert.equal(first.corridor, null);
+  assert.match(first.permitted_next_action, /semantic_bootstrap/);
+  assert.ok(first.semantic_bootstrap.current_chunk.regions.length >= 1);
+});
+
+test("live native service exposes semantic orientation then bounded plan/context/execute/result semantics", async () => {
   assert.deepEqual([...CHRYPCK_TOOL_NAMES], ["chrypck_plan", "chrypck_context", "chrypck_execute", "chrypck_result"]);
   const repository = new MemoryRepository();
   const service = new NativeMcpService(repository, serviceOptions());
-  const plan = await service.plan({ repository: "owner/repo", objective: "provider", base_ref: "main" });
+  const plan = await completeSemanticBootstrap(service, { repository: "owner/repo", objective: "provider", base_ref: "main" });
   assert.equal(plan.state, "READY");
+  assert.equal(plan.semantic_bootstrap.status, "complete");
+  assert.equal(plan.semantic_atlas.complete, true);
+  assert.ok(plan.semantic_atlas.region_count >= 1);
+  assert.equal(plan.semantic_coverage.bootstrap_complete, true);
   assert.equal(plan.context_available, true);
   assert.equal(JSON.stringify(plan).includes(repository.text), false, "plan must never expose exhaustive repository source");
 
@@ -72,6 +130,7 @@ test("live native service exposes bounded plan/context/execute/result semantics"
   assert.equal(result.state, "SUCCEEDED");
   assert.equal(result.result_commit_sha, "b".repeat(40));
   assert.match(repository.text, /return 2/);
+  assert.ok(result.semantic_atlas);
   assert.equal(service.result({ run_id: plan.run_id }).state, "SUCCEEDED");
 });
 

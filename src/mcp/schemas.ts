@@ -1,5 +1,7 @@
 import type { AuthoringEdit } from "../mutation/authoring-compiler.js";
 import type { ArchitectureRequest } from "../architecture/index.js";
+import type { SemanticBootstrapSubmissionInput } from "../semantic/types.js";
+
 export interface TraceAnalysisInput{
   readonly kind: "trace";
   readonly max_hops?: number;
@@ -25,7 +27,14 @@ export interface BoundedEventTraceInput {
 
 export type AnalysisInput = TraceAnalysisInput | BoundedEventTraceInput;
 
-export interface PlanInput{readonly repository:string;readonly objective:string;readonly base_ref?:string;readonly architecture?:ArchitectureRequest;readonly analysis?:AnalysisInput}
+export interface PlanInput{
+  readonly repository:string;
+  readonly objective:string;
+  readonly base_ref?:string;
+  readonly architecture?:ArchitectureRequest;
+  readonly analysis?:AnalysisInput;
+  readonly semantic_bootstrap?:SemanticBootstrapSubmissionInput;
+}
 export interface ContextInput{readonly run_id:string;readonly segment_id?:string}
 export type ExecuteInput =
   | Readonly<{ run_id:string; authoring_intent:Readonly<{id:string;objective:string;edits:readonly AuthoringEdit[]}>; commit_message?:string; architecture_approval?:never }>

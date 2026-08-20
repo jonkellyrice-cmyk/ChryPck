@@ -17,7 +17,7 @@ test("governed connector manifest exactly matches the public MCP tool surface", 
     CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.schemaVersion,
     GOVERNED_CONNECTOR_MANIFEST_VERSION,
   );
-  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 2);
+  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 3);
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.id, "chrypck");
   assert.equal(
     CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.selectionMode,
@@ -37,7 +37,7 @@ test("governed connector manifest exactly matches the public MCP tool surface", 
   );
 });
 
-test("governed connector manifest publishes aliases, diagnostics, and the staged workflow", () => {
+test("governed connector manifest publishes aliases, semantic orientation, diagnostics, and the staged workflow", () => {
   const manifest = CHRYPCK_GOVERNED_CONNECTOR_MANIFEST;
   assert.ok(manifest.connector.aliases.includes("ChryPck"));
   assert.ok(manifest.connector.aliases.includes("CherryPick"));
@@ -50,6 +50,8 @@ test("governed connector manifest publishes aliases, diagnostics, and the staged
   for (const diagnosticId of [
     "repository-atlas",
     "coverage-ledger",
+    "semantic-atlas",
+    "semantic-coverage-ledger",
     "dependency-graph",
     "dependency-watershed",
     "symbol-families",
@@ -73,6 +75,8 @@ test("governed connector manifest publishes aliases, diagnostics, and the staged
   assert.deepEqual(
     manifest.workflow.phases.map((phase) => phase.id),
     [
+      "semantic-bootstrap",
+      "repository-orientation",
       "general-analysis",
       "focused-analysis",
       "certified-context",
@@ -83,8 +87,10 @@ test("governed connector manifest publishes aliases, diagnostics, and the staged
   );
   assert.match(manifest.workflow.patchStrategy, /one coherent cross-cutting patch/i);
   assert.match(manifest.workflow.failurePolicy, /do not claim ChryPck is unavailable/i);
-  assert.match(manifest.workflow.phases[0]?.guidance ?? "", /repository_atlas/i);
-  assert.match(manifest.capabilities[0]?.returns ?? "", /coverage ledger/i);
+  assert.match(manifest.workflow.phases[0]?.guidance ?? "", /semantic_bootstrap/i);
+  assert.match(manifest.workflow.phases[1]?.guidance ?? "", /semantic_atlas/i);
+  assert.match(manifest.capabilities[0]?.returns ?? "", /Semantic Atlas/i);
+  assert.match(manifest.capabilities[0]?.description ?? "", /mandatory host-LLM Semantic Atlas bootstrap/i);
 });
 
 test("governed connector manifest keeps writes explicit and reads automatic", () => {
