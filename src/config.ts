@@ -11,6 +11,9 @@ export interface ChryPckConfig {
   readonly maxTextFileBytes: number;
   readonly maxRepositoryFiles: number;
   readonly maxMutationFileBytes: number;
+  readonly semanticMaxRegions: number;
+  readonly semanticRegionsPerChunk: number;
+  readonly semanticCacheEntries: number;
 }
 
 class RepositoryAllowlist extends Set<string> {
@@ -60,6 +63,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ChryPckConfig 
     mcpBearerToken: String(env.MCP_BEARER_TOKEN ?? "").trim() || null,
     maxTextFileBytes: positiveInteger(env.CHRYPCK_MAX_TEXT_FILE_BYTES, 524288, "CHRYPCK_MAX_TEXT_FILE_BYTES"),
     maxRepositoryFiles: positiveInteger(env.CHRYPCK_MAX_REPOSITORY_FILES, 12000, "CHRYPCK_MAX_REPOSITORY_FILES"),
-    maxMutationFileBytes: positiveInteger(env.CHRYPCK_MAX_MUTATION_FILE_BYTES, 1048576, "CHRYPCK_MAX_MUTATION_FILE_BYTES")
+    maxMutationFileBytes: positiveInteger(env.CHRYPCK_MAX_MUTATION_FILE_BYTES, 1048576, "CHRYPCK_MAX_MUTATION_FILE_BYTES"),
+    semanticMaxRegions: positiveInteger(env.CHRYPCK_SEMANTIC_MAX_REGIONS, 32, "CHRYPCK_SEMANTIC_MAX_REGIONS"),
+    semanticRegionsPerChunk: positiveInteger(env.CHRYPCK_SEMANTIC_REGIONS_PER_CHUNK, 4, "CHRYPCK_SEMANTIC_REGIONS_PER_CHUNK"),
+    semanticCacheEntries: positiveInteger(env.CHRYPCK_SEMANTIC_CACHE_ENTRIES, 32, "CHRYPCK_SEMANTIC_CACHE_ENTRIES")
   });
 }
