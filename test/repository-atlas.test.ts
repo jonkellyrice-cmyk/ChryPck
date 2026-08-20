@@ -65,3 +65,26 @@ test("repository atlas remains bounded and advertises omitted structure for larg
   );
   assert.equal(orientation.coverage.atlas_projection.omitted_node_count, orientation.atlas.omitted_node_count);
 });
+
+test("repository atlas spends its bound breadth-first so one large subtree cannot hide sibling structure", () => {
+  const files: RepositoryFile[] = [
+    ...Array.from({ length: 120 }, (_, index) => ({
+      path: `assets/generated/file-${String(index).padStart(3, "0")}.png`,
+      sha: `asset-${index}`,
+      size: 100,
+      kind: "asset" as const
+    })),
+    { path: "src/runtime/handler.ts", sha: "src", size: 30, text: "export const handler = 1;", kind: "source" },
+    { path: "test/runtime.test.ts", sha: "test", size: 30, text: "export const testValue = 1;", kind: "source" }
+  ];
+  const snapshot = createSnapshot("owner/repo", "ghi789", files, "2026-08-20T00:00:00.000Z");
+  const model = buildRepositoryModel(snapshot);
+  const orientation = buildRepositoryOrientation(model, { maxAtlasNodes: 5 });
+  const paths = flattenPaths(orientation.atlas.entries);
+
+  assert.ok(paths.includes("assets/generated"));
+  assert.ok(paths.includes("src/runtime"));
+  assert.ok(paths.includes("test"));
+  assert.equal(orientation.atlas.returned_node_count, 5);
+  assert.equal(orientation.atlas.complete, false);
+});
