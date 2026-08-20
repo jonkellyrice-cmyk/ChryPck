@@ -39,6 +39,12 @@ Exactly four MCP tools are exposed:
 
 There is no model-facing GitHub search, arbitrary file read, arbitrary GitHub write, shell, workflow-log reader, or workflow dispatcher.
 
+## Governed connector manifest
+
+ChryPck publishes a credential-free, versioned governed-connector manifest at `GET /connector-manifest`. The manifest is the service-owned description of its connector identity, MCP transport path, workflow-bundle behavior, and the effect, approval, return, and error contracts for all four public MCP tools.
+
+The manifest deliberately does not contain deployment credentials, application-specific project scope, enabled state, or user authorization. A host orchestrator such as Lemonade owns those installation and governance decisions while ChryPck remains authoritative for what the service is and which capabilities it exposes.
+
 ## Deliberate architecture operations
 
 The Domain Decomposer and Path Mover remain intentionally less automatic than ordinary patch execution.
@@ -94,6 +100,7 @@ Endpoints:
 ```text
 POST /mcp
 GET  /healthz
+GET  /connector-manifest
 ```
 
 For a ChatGPT-connected deployment, expose `/mcp` through a stable HTTPS endpoint and configure authentication appropriate to that deployment. Do not expose a credentialed ChryPck instance publicly without authentication.
