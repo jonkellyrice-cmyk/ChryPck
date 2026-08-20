@@ -18,6 +18,14 @@ import { architectureCorridor, planArchitecture, type ArchitecturePlan } from ".
 import { runTrace, type TraceResult } from "../analysis/trace-runner.js";
 import { analyzeBoundedEventTrace } from "../analysis/bounded-event-trace.js";
 import type { AuthoringIntent } from "../mutation/authoring-compiler.js";
+import { InMemorySemanticAtlasCache, semanticAtlasCacheKey } from "../semantic/cache.js";
+import {
+  DEFAULT_SEMANTIC_BOOTSTRAP_REGIONS_PER_CHUNK,
+  SemanticBootstrapCoordinator
+} from "../semantic/bootstrap.js";
+import { DEFAULT_SEMANTIC_MAX_REGIONS } from "../semantic/region-builder.js";
+import { prepareSemanticAtlas } from "../semantic/semantic-atlas.js";
+import type { SemanticBootstrapChunk, SemanticCoverageLedger, SemanticOrientation } from "../semantic/types.js";
 import type { PlanInput, ContextInput, ExecuteInput, ResultInput } from "./schemas.js";
 import {
   projectContextContinuation,
@@ -33,6 +41,9 @@ export interface NativeMcpServiceOptions {
   readonly maxMutationFileBytes: number;
   readonly projectProfiles: ProjectProfileRegistry;
   readonly sandboxRunner?: SandboxRunner;
+  readonly semanticMaxRegions?: number;
+  readonly semanticRegionsPerChunk?: number;
+  readonly semanticCacheEntries?: number;
 }
 
 interface RunBinding {
@@ -42,6 +53,7 @@ interface RunBinding {
   readonly architecturePlan: ArchitecturePlan | null;
   readonly allowedNewPaths: readonly string[];
   readonly orientation: RepositoryOrientation;
+  readonly semanticOrientation: SemanticOrientation;
 }
 
 function repositoryName(value: string): string {
@@ -123,14 +135,37 @@ function architecturePlanning(
   });
 }
 
+function pendingSemanticCoverage(regionCount: number, chunkCount: number): SemanticCoverageLedger {
+  return Object.freeze({
+    schema_version: 1,
+    candidate_regions: regionCount,
+    returned_regions: 0,
+    synthesized_regions: 0,
+    deterministic_only_regions: 0,
+    partial_regions: 0,
+    rejected_claims: 0,
+    bootstrap_required: true,
+    bootstrap_complete: false,
+    bootstrap_chunk_count: chunkCount,
+    cache_hit: false
+  });
+}
+
 export class NativeMcpService {
   readonly orchestrator = new NativeOrchestrator();
   readonly #bindings = new Map<string, RunBinding>();
+  readonly #semanticBootstrap: SemanticBootstrapCoordinator;
+  readonly #semanticCache: InMemorySemanticAtlasCache;
 
   constructor(
     private readonly adapter: RepositoryAdapter,
     private readonly options: NativeMcpServiceOptions
-  ) {}
+  ) {
+    this.#semanticBootstrap = new SemanticBootstrapCoordinator(
+      options.semanticRegionsPerChunk ?? DEFAULT_SEMANTIC_BOOTSTRAP_REGIONS_PER_CHUNK
+    );
+    this.#semanticCache = new InMemorySemanticAtlasCache(options.semanticCacheEntries ?? 32);
+  }
 
   private allowedRepository(value: string): string {
     const repository = repositoryName(value);
@@ -140,6 +175,48 @@ export class NativeMcpService {
 
   private profileFor(repository: string): ProjectProfile {
     return this.options.projectProfiles.resolve(repository);
+  }
+
+  private semanticBootstrapResult(args: {
+    readonly runId: string;
+    readonly targetRef: string;
+    readonly profileId: string;
+    readonly baseCommitSha: string;
+    readonly orientation: RepositoryOrientation;
+    readonly regionCount: number;
+    readonly chunkCount: number;
+    readonly currentChunk: SemanticBootstrapChunk;
+    readonly restartReason?: string;
+  }) {
+    const run = this.orchestrator.store.require(args.runId);
+    return Object.freeze({
+      run_id: run.runId,
+      state: run.state,
+      repository: run.repository,
+      project_profile: args.profileId,
+      base_ref: args.targetRef,
+      base_commit_sha: args.baseCommitSha,
+      scope_lock_fingerprint: run.scopeLock.fingerprint,
+      repository_atlas: args.orientation.atlas,
+      coverage: args.orientation.coverage,
+      semantic_atlas: null,
+      semantic_coverage: pendingSemanticCoverage(args.regionCount, args.chunkCount),
+      semantic_bootstrap: Object.freeze({
+        status: "required" as const,
+        ...(args.restartReason ? { restart_reason: args.restartReason } : {}),
+        bootstrap_id: args.currentChunk.bootstrap_id,
+        current_chunk: args.currentChunk
+      }),
+      corridor: null,
+      diagnostics: Object.freeze([]),
+      native_contracts: Object.freeze([]),
+      architecture_plan: null,
+      architecture_requires_review: false,
+      context_available: false,
+      context_segment_count: 0,
+      context_index: Object.freeze([]),
+      permitted_next_action: "submit_semantic_bootstrap_chunk_via_chrypck_plan_before_repository_work"
+    });
   }
 
   async plan(input: PlanInput) {
@@ -165,6 +242,80 @@ export class NativeMcpService {
     this.orchestrator.bindRequestCommit(run.runId, snapshot.commitSha);
     const model = buildRepositoryModel(snapshot, { profile: profile.sourceProfile });
     const orientation = buildRepositoryOrientation(model);
+
+    const semanticKey = semanticAtlasCacheKey({
+      repository,
+      commitSha: snapshot.commitSha,
+      projectProfile: profile.id
+    });
+    let semanticOrientation = this.#semanticCache.get(semanticKey);
+    if (!semanticOrientation) {
+      const semanticPreparation = prepareSemanticAtlas(model, {
+        maxRegions: this.options.semanticMaxRegions ?? DEFAULT_SEMANTIC_MAX_REGIONS,
+        nativeContracts: profile.nativeContractProvider?.(model) ?? []
+      });
+
+      if (input.semantic_bootstrap) {
+        try {
+          const advanced = this.#semanticBootstrap.advance(input.semantic_bootstrap, {
+            repository,
+            commitSha: snapshot.commitSha,
+            projectProfile: profile.id
+          });
+          if (!advanced.complete) {
+            return this.semanticBootstrapResult({
+              runId: run.runId,
+              targetRef,
+              profileId: profile.id,
+              baseCommitSha: snapshot.commitSha,
+              orientation,
+              regionCount: semanticPreparation.packets.length,
+              chunkCount: advanced.currentChunk.chunk_count,
+              currentChunk: advanced.currentChunk
+            });
+          }
+          semanticOrientation = advanced.orientation;
+          this.#semanticCache.put(semanticKey, semanticOrientation);
+        } catch (error) {
+          if (!(error instanceof Error) || !/Unknown or expired semantic bootstrap/.test(error.message)) throw error;
+          const restarted = this.#semanticBootstrap.begin({
+            repository,
+            commitSha: snapshot.commitSha,
+            projectProfile: profile.id,
+            packets: semanticPreparation.packets
+          });
+          return this.semanticBootstrapResult({
+            runId: run.runId,
+            targetRef,
+            profileId: profile.id,
+            baseCommitSha: snapshot.commitSha,
+            orientation,
+            regionCount: semanticPreparation.packets.length,
+            chunkCount: restarted.chunkCount,
+            currentChunk: restarted.currentChunk,
+            restartReason: "semantic_bootstrap_session_expired_and_was_restarted"
+          });
+        }
+      } else {
+        const started = this.#semanticBootstrap.begin({
+          repository,
+          commitSha: snapshot.commitSha,
+          projectProfile: profile.id,
+          packets: semanticPreparation.packets
+        });
+        return this.semanticBootstrapResult({
+          runId: run.runId,
+          targetRef,
+          profileId: profile.id,
+          baseCommitSha: snapshot.commitSha,
+          orientation,
+          regionCount: semanticPreparation.packets.length,
+          chunkCount: started.chunkCount,
+          currentChunk: started.currentChunk
+        });
+      }
+    }
+
     const base = runNativePlanning({
       objective: input.objective.trim(),
       model,
@@ -174,15 +325,15 @@ export class NativeMcpService {
         nativeContractProvider: profile.nativeContractProvider
       }
     });
-    // Trace mode: run a bounded, read-only causal trace and return curated evidence
+
     if (input.analysis?.kind === "trace") {
-      // record planning artifacts as usual to preserve existing behavior
       this.orchestrator.recordArtifact(run.runId, "planning", base, {
         projectProfile: profile.id,
         corridorCertified: base.corridor.certified,
         contextSegments: base.context?.segments.length ?? 0,
         diagnostics: base.diagnostics.length,
         nativeContracts: base.nativeContracts.length,
+        semanticRegions: semanticOrientation.atlas.region_count,
         architecture: null
       });
 
@@ -194,26 +345,23 @@ export class NativeMcpService {
         max_branches: input.analysis?.max_branches
       });
 
-      // Bind minimal run binding but do NOT grant mutation authority or allowedNewPaths
       const binding = Object.freeze({
         targetRef,
         baseCommitSha: snapshot.commitSha,
         profileId: profile.id,
         architecturePlan: null,
         allowedNewPaths: Object.freeze([]),
-        orientation
+        orientation,
+        semanticOrientation
       });
       this.#bindings.set(run.runId, binding);
 
-      // If trace could not continue due to lack of certified edges, mark capability gap
       if (traceResult.status === "capability_gap") {
         this.orchestrator.transition(run.runId, "CAPABILITY_GAP", "native_plan_gap");
       } else {
-        // terminal successful diagnostic
         this.orchestrator.transition(run.runId, "SUCCEEDED", "native_trace_complete");
       }
 
-      // return a curated response compatible with planResult shape but embedding analysis.trace
       return Object.freeze({
         run_id: run.runId,
         state: run.state,
@@ -224,20 +372,31 @@ export class NativeMcpService {
         scope_lock_fingerprint: run.scopeLock.fingerprint,
         repository_atlas: orientation.atlas,
         coverage: orientation.coverage,
+        semantic_atlas: semanticOrientation.atlas,
+        semantic_coverage: semanticOrientation.coverage,
+        semantic_bootstrap: Object.freeze({ status: "complete" as const, bootstrap_id: null, current_chunk: null }),
         corridor: base.corridor ?? null,
-        diagnostics: base ? projectDiagnosticMaps(base.diagnostics, base.corridor) : [],
-        native_contracts: base ? projectNativeContractMaps(base.nativeContracts, base.corridor) : [],
+        diagnostics: projectDiagnosticMaps(base.diagnostics, base.corridor),
+        native_contracts: projectNativeContractMaps(base.nativeContracts, base.corridor),
         architecture_plan: null,
         architecture_requires_review: false,
         context_available: false,
         context_segment_count: 0,
         context_index: Object.freeze([]),
-        analysis: Object.freeze({ kind: "trace", status: traceResult.status, terminal_reason: traceResult.terminal_reason, root_cause: traceResult.root_cause, trace: traceResult.trace, considered_branches: traceResult.considered_branches, unresolved_questions: traceResult.unresolved_questions, likely_patch_candidates: traceResult.likely_patch_candidates }),
+        analysis: Object.freeze({
+          kind: "trace",
+          status: traceResult.status,
+          terminal_reason: traceResult.terminal_reason,
+          root_cause: traceResult.root_cause,
+          trace: traceResult.trace,
+          considered_branches: traceResult.considered_branches,
+          unresolved_questions: traceResult.unresolved_questions,
+          likely_patch_candidates: traceResult.likely_patch_candidates
+        }),
         permitted_next_action: "create_normal_plan_from_trace_root_cause"
       });
     }
 
-    // Bounded Event-Flow Trace: invoke the BEFT analyzer and return curated evidence
     if (input.analysis?.kind === "bounded-event-trace") {
       this.orchestrator.recordArtifact(run.runId, "planning", base, {
         projectProfile: profile.id,
@@ -245,6 +404,7 @@ export class NativeMcpService {
         contextSegments: base.context?.segments.length ?? 0,
         diagnostics: base.diagnostics.length,
         nativeContracts: base.nativeContracts.length,
+        semanticRegions: semanticOrientation.atlas.region_count,
         architecture: null
       });
 
@@ -252,9 +412,9 @@ export class NativeMcpService {
         requestId: run.runId,
         repository,
         commitSha: snapshot.commitSha,
-        sourceSymbol: (input.analysis as any).sourceSymbol,
-        targetEffect: (input.analysis as any).targetEffect,
-        options: (input.analysis as any).options
+        sourceSymbol: input.analysis.sourceSymbol,
+        targetEffect: input.analysis.targetEffect,
+        options: input.analysis.options
       }, model, base.corridor);
 
       const binding = Object.freeze({
@@ -263,7 +423,8 @@ export class NativeMcpService {
         profileId: profile.id,
         architecturePlan: null,
         allowedNewPaths: Object.freeze([]),
-        orientation
+        orientation,
+        semanticOrientation
       });
       this.#bindings.set(run.runId, binding);
 
@@ -283,9 +444,12 @@ export class NativeMcpService {
         scope_lock_fingerprint: run.scopeLock.fingerprint,
         repository_atlas: orientation.atlas,
         coverage: orientation.coverage,
+        semantic_atlas: semanticOrientation.atlas,
+        semantic_coverage: semanticOrientation.coverage,
+        semantic_bootstrap: Object.freeze({ status: "complete" as const, bootstrap_id: null, current_chunk: null }),
         corridor: base.corridor ?? null,
-        diagnostics: base ? projectDiagnosticMaps(base.diagnostics, base.corridor) : [],
-        native_contracts: base ? projectNativeContractMaps(base.nativeContracts, base.corridor) : [],
+        diagnostics: projectDiagnosticMaps(base.diagnostics, base.corridor),
+        native_contracts: projectNativeContractMaps(base.nativeContracts, base.corridor),
         architecture_plan: null,
         architecture_requires_review: false,
         context_available: false,
@@ -295,6 +459,7 @@ export class NativeMcpService {
         permitted_next_action: "create_normal_plan_from_trace_root_cause"
       });
     }
+
     const architecturePlan = input.architecture ? planArchitecture(model, input.architecture) : null;
     const planning = architecturePlanning(base, model, architecturePlan);
     this.orchestrator.recordArtifact(run.runId, "planning", planning, {
@@ -303,6 +468,7 @@ export class NativeMcpService {
       contextSegments: planning.context?.segments.length ?? 0,
       diagnostics: planning.diagnostics.length,
       nativeContracts: planning.nativeContracts.length,
+      semanticRegions: semanticOrientation.atlas.region_count,
       architecture: architecturePlan?.kind ?? null
     });
     const binding = Object.freeze({
@@ -311,7 +477,8 @@ export class NativeMcpService {
       profileId: profile.id,
       architecturePlan,
       allowedNewPaths: Object.freeze([...(architecturePlan?.authorizedNewPaths ?? [])]),
-      orientation
+      orientation,
+      semanticOrientation
     });
     this.#bindings.set(run.runId, binding);
     if (!planning.corridor.certified || !planning.context || planning.context.segments.length === 0 || architecturePlan?.gaps.length) {
@@ -343,6 +510,9 @@ export class NativeMcpService {
       scope_lock_fingerprint: run.scopeLock.fingerprint,
       repository_atlas: binding?.orientation.atlas ?? null,
       coverage: binding?.orientation.coverage ?? null,
+      semantic_atlas: binding?.semanticOrientation.atlas ?? null,
+      semantic_coverage: binding?.semanticOrientation.coverage ?? null,
+      semantic_bootstrap: Object.freeze({ status: "complete" as const, bootstrap_id: null, current_chunk: null }),
       corridor: planning?.corridor ?? null,
       diagnostics: planning ? projectDiagnosticMaps(planning.diagnostics, planning.corridor) : [],
       native_contracts: planning ? projectNativeContractMaps(planning.nativeContracts, planning.corridor) : [],
@@ -359,7 +529,7 @@ export class NativeMcpService {
     const run = this.orchestrator.store.require(input.run_id);
     if (run.state !== "READY") throw new Error(`Context is available only for READY runs; run is ${run.state}.`);
     const context = run.artifacts.planning?.context;
-    if (!context || context.segments.length === 0) throw new Error("Run has no certified Context Pack expansion.");
+    if (!context || context.segments.length === 0) throw new Error("Run has no certified Context Pack expansion. Complete any required Semantic Atlas bootstrap and normal planning first.");
 
     if (!input.segment_id) {
       return Object.freeze({
@@ -411,7 +581,7 @@ export class NativeMcpService {
     const run = this.orchestrator.store.require(input.run_id);
     if (run.state !== "READY") throw new Error(`Execution requires READY state; run is ${run.state}.`);
     const binding = this.#bindings.get(run.runId);
-    if (!binding) throw new Error("Run is missing its repository/ref binding.");
+    if (!binding) throw new Error("Run is missing its repository/ref binding. Complete any required Semantic Atlas bootstrap and normal planning before execution.");
     const profile = this.options.projectProfiles.get(binding.profileId);
     if (!profile) throw new Error(`Run references an unavailable project profile: ${binding.profileId}`);
 
@@ -473,6 +643,8 @@ export class NativeMcpService {
       result_commit_sha: run.resultCommitSha,
       permitted_next_action: run.stateRecord.permitted_next_action,
       architecture_plan: binding?.architecturePlan ?? null,
+      semantic_atlas: binding?.semanticOrientation.atlas ?? null,
+      semantic_coverage: binding?.semanticOrientation.coverage ?? null,
       artifacts: summarizeRunArtifacts(run.artifacts),
       failure: run.artifacts.failure,
       telemetry: run.telemetry.snapshot()
