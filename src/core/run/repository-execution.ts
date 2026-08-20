@@ -8,6 +8,7 @@ import type { ValidationCommandPlan } from "../../validation/command-plan.js";
 import type { SandboxRunner } from "../../validation/sandbox-runner.js";
 import type { StructuralValidationContext } from "../../validation/structural-validator.js";
 import type { Validator } from "../../validation/validator.js";
+import type { NativePlanningExtensions } from "../../planning/planning-runner.js";
 import { buildNativeFailureEvidence } from "./failure-evidence.js";
 import { executeNativeRun, type NativeExecutionResult } from "./native-execution.js";
 import type { NativeOrchestrator } from "./orchestrator.js";
@@ -24,6 +25,7 @@ export interface NativeRepositoryExecutionRequest {
   readonly structuralValidators: readonly Validator<StructuralValidationContext>[];
   readonly commandPlan: ValidationCommandPlan;
   readonly sandboxRunner: SandboxRunner;
+  readonly planningExtensions?: NativePlanningExtensions;
 }
 
 export async function executeNativeRepositoryRun(orchestrator: NativeOrchestrator, request: NativeRepositoryExecutionRequest): Promise<NativeExecutionResult> {
@@ -66,6 +68,7 @@ export async function executeNativeRepositoryRun(orchestrator: NativeOrchestrato
     structuralValidators: request.structuralValidators,
     commandPlan: request.commandPlan,
     sandboxRunner: request.sandboxRunner,
+    planningExtensions: request.planningExtensions,
     committer
   });
 }

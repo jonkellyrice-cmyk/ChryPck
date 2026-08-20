@@ -1,5 +1,6 @@
 import type { AnalysisResult } from "../analysis/analyzer.js";
 import type { RepositoryModel, SymbolRecord } from "../repository/model.js";
+import type { ContractMap, ContractRecord } from "../repository/contract-types.js";
 import type { CertifiedTracePlanningEvidence } from "./trace-handoff.js";
 
 const STOP_WORDS = new Set([
@@ -20,6 +21,7 @@ export interface CorridorFile {
   readonly confidence: number;
   readonly score: number;
   readonly symbols: readonly CorridorSymbolAnchor[];
+  readonly contractIds: readonly string[];
 }
 
 export interface CorridorClause {
@@ -47,6 +49,7 @@ export interface PatchCorridor {
     coveredCount: number;
     fileCount: number;
     confidence: "high" | "medium" | "incomplete";
+    contractCount: number;
   }>;
 }
 
@@ -55,6 +58,7 @@ export interface PatchCorridorOptions {
   readonly traceEvidence?: CertifiedTracePlanningEvidence;
   readonly maxFiles?: number;
   readonly minOwnerScore?: number;
+  readonly contractMap?: ContractMap;
 }
 
 function normalize(value: string): string {
@@ -118,7 +122,8 @@ function fileScore(
   model: RepositoryModel,
   path: string,
   terms: readonly string[],
-  traceEvidence?: CertifiedTracePlanningEvidence
+  traceEvidence?: CertifiedTracePlanningEvidence,
+  contractMap?: ContractMap
 ): number {
   const facts = model.fileFacts.find(row => row.file === path);
   if (!facts) return 0;
@@ -139,7 +144,32 @@ function fileScore(
   return score
     + Math.min(4, incoming)
     + Math.min(3, outgoing)
-    + traceEvidenceScore(path, terms, traceEvidence);
+    + traceEvidenceScore(path, terms, traceEvidence)
+    + contractEvidenceScore(path, terms, contractMap);
+}
+
+function contractText(contract: ContractRecord): string {
+  return normalize([
+    contract.name,
+    contract.kind,
+    contract.provider?.symbol ?? "",
+    ...contract.consumers.map(endpoint => endpoint.symbol),
+    ...contract.nativeContractRefs
+  ].join(" "));
+}
+
+function relevantContracts(terms: readonly string[], map?: ContractMap): readonly ContractRecord[] {
+  if (!map || terms.length === 0) return [];
+  return map.contracts.filter(contract => terms.some(term => contractText(contract).includes(term)));
+}
+
+function contractEvidenceScore(path: string, terms: readonly string[], map?: ContractMap): number {
+  let score = 0;
+  for (const contract of relevantContracts(terms, map)) {
+    if (contract.provider?.file === path) score += contract.verification === "native-authoritative" ? 8 : 5;
+    if (contract.consumers.some(endpoint => endpoint.file === path)) score += 4;
+  }
+  return score;
 }
 
 function candidateOwners(
@@ -148,7 +178,7 @@ function candidateOwners(
   traceEvidence?: CertifiedTracePlanningEvidence
 ): readonly { path: string; score: number }[] {
   return model.fileFacts
-    .map(facts => ({ path: facts.file, score: fileScore(model, facts.file, terms, traceEvidence) }))
+    .map(facts => ({ path: facts.file, score: fileScore(model, facts.file, terms, traceEvidence, model.contractMap) }))
     .filter(row => row.score > 0)
     .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
 }
@@ -218,12 +248,13 @@ function diagnosticNames(results: readonly AnalysisResult[] | undefined): string
 }
 
 export function planPatchCorridor(objective: string, model: RepositoryModel, options: PatchCorridorOptions = {}): PatchCorridor {
+  const planningModel = options.contractMap ? Object.freeze({ ...model, contractMap: options.contractMap }) : model;
   const clauses = splitObjectiveClauses(objective);
   const minOwnerScore = options.minOwnerScore ?? 4;
   const graph = adjacency(model);
   const preliminary = clauses.map((text, index) => {
     const terms = termsFor(text);
-    const candidates = candidateOwners(model, terms, options.traceEvidence);
+    const candidates = candidateOwners(planningModel, terms, options.traceEvidence);
     const best = candidates[0] ?? null;
     const runnerUp = candidates[1] ?? null;
     const decisive = Boolean(best && best.score >= minOwnerScore && (!runnerUp || best.score >= runnerUp.score + 2));
@@ -265,19 +296,22 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
     if (clause.owner) selected.add(clause.owner);
     for (const path of clause.path) selected.add(path);
   }
+  const objectiveContracts = relevantContracts(termsFor(objective), options.contractMap ?? model.contractMap);
   const maxFiles = Math.max(1, Math.min(32, options.maxFiles ?? 16));
   const allTerms = termsFor(objective);
   const fileRows: CorridorFile[] = [...selected]
     .map(path => {
       const supportingClauses = clauseRows.filter(clause => clause.owner === path || clause.path.includes(path));
-      const score = fileScore(model, path, allTerms, options.traceEvidence);
+      const score = fileScore(planningModel, path, allTerms, options.traceEvidence, options.contractMap);
       const reasons = supportingClauses.map(clause => `${clause.id}: ${clause.owner === path ? "owner" : "dependency path"}`);
       if (traceFiles.has(path) && options.traceEvidence) {
         reasons.push(`certified Trace lineage from ${options.traceEvidence.sourceRunId}`);
       }
+      const contracts = objectiveContracts.filter(contract => contract.provider?.file === path || contract.consumers.some(endpoint => endpoint.file === path));
+      for (const contract of contracts) reasons.push(`Contract Map ${contract.reconciliation}: ${contract.name}`);
       const anchors = symbolAnchors(model, path, allTerms);
       const confidence = Math.min(1, Math.max(0.2, score / 24));
-      return Object.freeze({ path, reasons: Object.freeze(reasons), confidence, score, symbols: Object.freeze(anchors) });
+      return Object.freeze({ path, reasons: Object.freeze(reasons), confidence, score, symbols: Object.freeze(anchors), contractIds: Object.freeze(contracts.map(contract => contract.id).sort()) });
     })
     .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
     .slice(0, maxFiles);
@@ -286,7 +320,10 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
   const gaps = uncovered.map(clause => `${clause.id}: ${clause.basis}`);
   if (clauses.length === 0) gaps.push("objective contains no behavioral clause");
   if (fileRows.length === 0) gaps.push("no repository-model path could be certified");
-  const certified = clauses.length > 0 && uncovered.length === 0 && fileRows.length > 0;
+  const selectedPaths = new Set(fileRows.map(file => file.path));
+  const relevantConflicts = objectiveContracts.filter(contract => contract.reconciliation === "native-conflict" && [contract.provider, ...contract.consumers].some(endpoint => endpoint && selectedPaths.has(endpoint.file)));
+  for (const contract of relevantConflicts) gaps.push(`Contract Map native conflict blocks ${contract.name}: ${contract.failures.map(failure => failure.summary).join("; ")}`);
+  const certified = clauses.length > 0 && uncovered.length === 0 && fileRows.length > 0 && relevantConflicts.length === 0;
   const confidence: PatchCorridor["summary"]["confidence"] = !certified
     ? "incomplete"
     : fileRows.every(file => file.confidence >= 0.5) ? "high" : "medium";
@@ -303,7 +340,8 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
       clauseCount: clauseRows.length,
       coveredCount: clauseRows.length - uncovered.length,
       fileCount: fileRows.length,
-      confidence
+      confidence,
+      contractCount: new Set(fileRows.flatMap(file => file.contractIds)).size
     })
   });
 }
@@ -316,5 +354,5 @@ export const uncertifiedCorridor = (objective: string, _model: RepositoryModel):
   clauses: Object.freeze([]),
   gaps: Object.freeze(["Patch Corridor has not been planned."]),
   diagnostics: Object.freeze([]),
-  summary: Object.freeze({ clauseCount: 0, coveredCount: 0, fileCount: 0, confidence: "incomplete" as const })
+  summary: Object.freeze({ clauseCount: 0, coveredCount: 0, fileCount: 0, confidence: "incomplete" as const, contractCount: 0 })
 });

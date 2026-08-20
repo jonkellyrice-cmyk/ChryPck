@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { DependencyReference, RepositoryModel, SymbolRecord } from "../repository/model.js";
 import type { PatchCorridor } from "./patch-corridor.js";
+import type { ContractRecord } from "../repository/contract-types.js";
 
 const MAX_CONTEXT_SYMBOLS_PER_SEGMENT = 6;
 const MAX_SYMBOL_SOURCE_LINES = 120;
@@ -39,6 +40,18 @@ export interface ContextSegment {
   readonly symbols: readonly ContextSymbol[];
   readonly dependencies: readonly DependencyReference[];
   readonly consumers: readonly string[];
+  readonly contracts: readonly ContextContractEvidence[];
+}
+
+export interface ContextContractEvidence {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: ContractRecord["kind"];
+  readonly role: "provider" | "consumer";
+  readonly reconciliation: ContractRecord["reconciliation"];
+  readonly verification: ContractRecord["verification"];
+  readonly nativeContractRefs: readonly string[];
+  readonly failures: readonly string[];
 }
 
 export interface CorridorContextPack {
@@ -172,6 +185,23 @@ function segmentContent(symbols: readonly ContextSymbol[]): string {
   ].join("\n")).join("\n\n");
 }
 
+function contractEvidence(path: string, contractIds: readonly string[], model: RepositoryModel): readonly ContextContractEvidence[] {
+  const ids = new Set(contractIds);
+  return Object.freeze((model.contractMap?.contracts ?? [])
+    .filter(contract => ids.has(contract.id) && (contract.provider?.file === path || contract.consumers.some(endpoint => endpoint.file === path)))
+    .map(contract => Object.freeze({
+      id: contract.id,
+      name: contract.name,
+      kind: contract.kind,
+      role: contract.provider?.file === path ? "provider" as const : "consumer" as const,
+      reconciliation: contract.reconciliation,
+      verification: contract.verification,
+      nativeContractRefs: Object.freeze([...contract.nativeContractRefs]),
+      failures: Object.freeze(contract.failures.map(failure => failure.summary))
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id)));
+}
+
 export function buildContextPack(corridor: PatchCorridor, model: RepositoryModel, maxSegments = 24): CorridorContextPack {
   if (!corridor.certified) throw new Error("Context Pack requires a certified Patch Corridor.");
   const segments: ContextSegment[] = [];
@@ -199,7 +229,8 @@ export function buildContextPack(corridor: PatchCorridor, model: RepositoryModel
       evidence: Object.freeze([...row.reasons]),
       symbols: Object.freeze(built.symbols),
       dependencies: Object.freeze([...facts.dependencies]),
-      consumers: Object.freeze(consumers)
+      consumers: Object.freeze(consumers),
+      contracts: contractEvidence(row.path, row.contractIds, model)
     }));
     continuations.push(...built.continuations);
   }

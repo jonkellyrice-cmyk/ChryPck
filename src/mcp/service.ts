@@ -35,6 +35,7 @@ import {
   projectDiagnosticMaps,
   projectNativeContractMaps
 } from "./response-projection.js";
+import { projectContractMap } from "./contract-map-projection.js";
 
 export interface NativeMcpServiceOptions {
   readonly allowedRepositories: ReadonlySet<string>;
@@ -232,6 +233,7 @@ export class NativeMcpService {
       trace_handoff: null,
       corridor: null,
       diagnostics: Object.freeze([]),
+      contract_map: null,
       native_contracts: Object.freeze([]),
       architecture_plan: null,
       architecture_requires_review: false,
@@ -448,6 +450,7 @@ export class NativeMcpService {
         trace_handoff: null,
         corridor: base.corridor ?? null,
         diagnostics: projectDiagnosticMaps(base.diagnostics, base.corridor),
+        contract_map: projectContractMap(base.contractMap, base.corridor.objective, base.corridor.corridor),
         native_contracts: projectNativeContractMaps(base.nativeContracts, base.corridor),
         architecture_plan: null,
         architecture_requires_review: false,
@@ -520,6 +523,7 @@ export class NativeMcpService {
       trace_handoff: projectTraceHandoff(binding?.traceHandoff),
       corridor: planning?.corridor ?? null,
       diagnostics: planning ? projectDiagnosticMaps(planning.diagnostics, planning.corridor) : [],
+      contract_map: planning ? projectContractMap(planning.contractMap, planning.corridor.objective, planning.corridor.corridor) : null,
       native_contracts: planning ? projectNativeContractMaps(planning.nativeContracts, planning.corridor) : [],
       architecture_plan: architecturePlan,
       architecture_requires_review: Boolean(architecturePlan),
@@ -628,7 +632,12 @@ export class NativeMcpService {
         })
       ],
       commandPlan: buildValidationCommandPlan(profile.validation.commands, profile.validation.commandPolicy),
-      sandboxRunner: this.options.sandboxRunner ?? new DisabledSandboxRunner()
+      sandboxRunner: this.options.sandboxRunner ?? new DisabledSandboxRunner(),
+      planningExtensions: {
+        additionalAnalyzers: profile.additionalAnalyzers,
+        runtimeProbePlanner: profile.runtimeProbePlanner,
+        nativeContractProvider: profile.nativeContractProvider
+      }
     });
     return this.result({ run_id: result.run.runId });
   }
@@ -654,6 +663,13 @@ export class NativeMcpService {
         : null,
       semantic_atlas: binding?.semanticOrientation.atlas ?? null,
       semantic_coverage: binding?.semanticOrientation.coverage ?? null,
+      contract_map: run.artifacts.planning
+        ? projectContractMap(
+          run.artifacts.planning.contractMap,
+          run.artifacts.planning.corridor.objective,
+          run.artifacts.planning.corridor.corridor
+        )
+        : null,
       artifacts: summarizeRunArtifacts(run.artifacts),
       failure: run.artifacts.failure,
       telemetry: run.telemetry.snapshot()

@@ -11,7 +11,7 @@ import { CHRYPCK_TOOL_NAMES } from "../src/mcp/tools.js";
 test("governed connector manifest exactly matches the public MCP tool surface", () => {
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.schema, GOVERNED_CONNECTOR_MANIFEST_SCHEMA);
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.schemaVersion, GOVERNED_CONNECTOR_MANIFEST_VERSION);
-  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 5);
+  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 6);
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.id, "chrypck");
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.selectionMode, "workflow-bundle");
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.transport.path, "/mcp");
@@ -36,7 +36,7 @@ test("governed connector manifest publishes semantic orientation, canonical Trac
   for (const diagnosticId of [
     "repository-atlas", "coverage-ledger", "semantic-atlas", "semantic-coverage-ledger",
     "dependency-graph", "dependency-watershed", "symbol-families", "effect-atlas",
-    "integration-surfaces", "runtime-signals", "state-namespaces", "native-contracts",
+    "integration-surfaces", "runtime-signals", "state-namespaces", "native-contracts", "contract-map",
     "runtime-probes", "analysis-lineage", "patch-corridor", "context-pack", "change-propagation",
   ]) {
     assert.ok(manifest.workflow.diagnosticSurfaces.some(surface => surface.id === diagnosticId), `missing diagnostic surface ${diagnosticId}`);
@@ -56,6 +56,7 @@ test("governed connector manifest publishes semantic orientation, canonical Trac
   assert.match(manifest.capabilities[0]?.returns ?? "", /Semantic Atlas/i);
   assert.match(manifest.capabilities[0]?.description ?? "", /Trace/i);
   assert.match(manifest.capabilities[0]?.description ?? "", /trace_handoff/i);
+  assert.match(manifest.workflow.phases[2]?.guidance ?? "", /Contract Map/i);
 });
 
 test("governed connector manifest keeps writes explicit and reads automatic", () => {

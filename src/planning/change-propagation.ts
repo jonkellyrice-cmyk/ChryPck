@@ -1,5 +1,6 @@
 import type { RepositoryModel } from "../repository/model.js";
 import type { PatchCorridor } from "./patch-corridor.js";
+import type { ContractMap, ContractRecord } from "../repository/contract-types.js";
 
 export interface ProposedChange { readonly path: string; readonly before: string | null; readonly after: string | null; }
 
@@ -18,7 +19,17 @@ export interface ChangePropagationReport {
   readonly outsideCorridorConsumers: readonly string[];
   readonly contractDeltas: readonly ContractDelta[];
   readonly verificationTargets: readonly string[];
+  readonly impactedContractIds: readonly string[];
+  readonly contractConsumers: readonly string[];
+  readonly nativeConflictIds: readonly string[];
   readonly gaps: readonly string[];
+}
+
+function impactedContracts(changed: ReadonlySet<string>, map?: ContractMap): readonly ContractRecord[] {
+  return (map?.contracts ?? []).filter(contract =>
+    contract.provider !== null && changed.has(contract.provider.file)
+    || contract.consumers.some(endpoint => changed.has(endpoint.file))
+  );
 }
 
 function exportedDeclarations(source: string): ReadonlyMap<string, string> {
@@ -70,9 +81,17 @@ export function assessPropagation(changes: readonly ProposedChange[], model: Rep
   const corridorPaths = new Set(corridor?.files.map(file => file.path) ?? []);
   const outside = corridor ? transitive.filter(path => !corridorPaths.has(path)) : [];
   const deltas = changes.flatMap(contractDeltas).sort((left, right) => left.path.localeCompare(right.path) || left.symbol.localeCompare(right.symbol));
+  const contracts = impactedContracts(changed, model.contractMap);
+  const contractConsumers = [...new Set(contracts.flatMap(contract => contract.consumers.map(endpoint => endpoint.file)).filter(path => !changed.has(path)))].sort();
+  const nativeConflicts = contracts.filter(contract => contract.reconciliation === "native-conflict");
   const breaking = deltas.some(delta => delta.breaking);
   const gaps: string[] = [];
   if (breaking && outside.length > 0) gaps.push("Breaking exported-contract changes reach consumers outside the certified corridor.");
+  if (nativeConflicts.length > 0) gaps.push(`Changed paths intersect unresolved native Contract Map conflicts: ${nativeConflicts.map(contract => contract.id).sort().join(", ")}`);
+  if (breaking) {
+    const unboundedContractConsumers = contractConsumers.filter(path => corridor && !corridorPaths.has(path));
+    if (unboundedContractConsumers.length > 0) gaps.push("Breaking exported-contract changes reach Contract Map consumers outside the certified corridor.");
+  }
   for (const change of changes) if (!model.snapshot.files.some(file => file.path === change.path)) gaps.push(`Changed path is absent from the repository snapshot: ${change.path}`);
   return Object.freeze({
     certified: gaps.length === 0,
@@ -81,7 +100,10 @@ export function assessPropagation(changes: readonly ProposedChange[], model: Rep
     transitiveConsumers: Object.freeze(transitive),
     outsideCorridorConsumers: Object.freeze(outside),
     contractDeltas: Object.freeze(deltas),
-    verificationTargets: Object.freeze([...new Set([...changed, ...transitive])].sort()),
+    verificationTargets: Object.freeze([...new Set([...changed, ...transitive, ...contractConsumers])].sort()),
+    impactedContractIds: Object.freeze(contracts.map(contract => contract.id).sort()),
+    contractConsumers: Object.freeze(contractConsumers),
+    nativeConflictIds: Object.freeze(nativeConflicts.map(contract => contract.id).sort()),
     gaps: Object.freeze(gaps)
   });
 }

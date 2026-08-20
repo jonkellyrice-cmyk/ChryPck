@@ -191,7 +191,17 @@ export function projectContextIndexSegment(segment: ContextSegment): Readonly<Re
       kind: dependency.kind,
       line: dependency.line
     }))),
-    consumers: Object.freeze(segment.consumers.slice(0, MAX_INDEX_RELATIONSHIPS))
+    consumers: Object.freeze(segment.consumers.slice(0, MAX_INDEX_RELATIONSHIPS)),
+    contracts: Object.freeze(segment.contracts.slice(0, MAX_INDEX_RELATIONSHIPS).map(contract => Object.freeze({
+      id: contract.id,
+      name: contract.name,
+      kind: contract.kind,
+      role: contract.role,
+      reconciliation: contract.reconciliation,
+      verification: contract.verification,
+      native_contract_refs: contract.nativeContractRefs,
+      failures: contract.failures
+    })))
   });
 }
 
