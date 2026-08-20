@@ -85,10 +85,12 @@ test("native MCP surface keeps four distinct agent-facing operations", () => {
 
   assert.match(CHRYPCK_TOOLS[0]!.description, /Start governed repository work/);
   assert.match(CHRYPCK_TOOLS[0]!.description, /Semantic Atlas bootstrap/);
+  assert.match(CHRYPCK_TOOLS[0]!.description, /trace_handoff/);
   assert.match(CHRYPCK_TOOLS[1]!.description, /server-certified Context Pack/);
-  assert.match(CHRYPCK_TOOLS[1]!.description, /arbitrary paths are never accepted/);
+  assert.match(CHRYPCK_TOOLS[1]!.description, /arbitrary paths are never accepted/i);
   assert.match(CHRYPCK_TOOLS[2]!.description, /exactly one mode/);
   assert.match(CHRYPCK_TOOLS[3]!.description, /authoritative bounded run state/);
+  assert.match(CHRYPCK_TOOLS[3]!.description, /Trace artifact/);
 });
 
 test("first uncached plan blocks ordinary work until the host LLM completes semantic bootstrap", async () => {
@@ -96,6 +98,7 @@ test("first uncached plan blocks ordinary work until the host LLM completes sema
   const first: any = await service.plan({ repository: "owner/repo", objective: "provider", base_ref: "main" });
   assert.equal(first.semantic_bootstrap.status, "required");
   assert.equal(first.semantic_atlas, null);
+  assert.equal(first.trace_handoff, null);
   assert.equal(first.context_available, false);
   assert.equal(first.corridor, null);
   assert.match(first.permitted_next_action, /semantic_bootstrap/);
@@ -112,6 +115,7 @@ test("live native service exposes semantic orientation then bounded plan/context
   assert.equal(plan.semantic_atlas.complete, true);
   assert.ok(plan.semantic_atlas.region_count >= 1);
   assert.equal(plan.semantic_coverage.bootstrap_complete, true);
+  assert.equal(plan.trace_handoff, null);
   assert.equal(plan.context_available, true);
   assert.equal(JSON.stringify(plan).includes(repository.text), false, "plan must never expose exhaustive repository source");
 
