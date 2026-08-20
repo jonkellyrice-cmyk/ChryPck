@@ -1,8 +1,8 @@
 import type { TraceResult } from "../analysis/trace.js";
 
 export interface TraceHandoffReference {
-  readonly runId: string;
-  readonly certificateId?: string;
+  readonly run_id: string;
+  readonly certificate_id?: string;
 }
 
 export interface TraceHandoffSource {
@@ -73,7 +73,7 @@ export function validateTraceHandoff(
   source: TraceHandoffSource,
   expected: TraceHandoffExpectation
 ): CertifiedTracePlanningEvidence {
-  if (!reference.runId.trim() || reference.runId !== source.runId) {
+  if (!reference.run_id.trim() || reference.run_id !== source.runId) {
     return handoffError("source run identifier does not match the stored Trace run");
   }
   if (source.repository !== expected.repository) {
@@ -93,7 +93,7 @@ export function validateTraceHandoff(
   }
   if (!trace.certificate) return handoffError("source Trace has no path certificate");
   if (trace.path.length === 0 || !trace.entrypoint) return handoffError("source Trace has no certifiable path");
-  if (reference.certificateId && reference.certificateId !== trace.certificate.certificateId) {
+  if (reference.certificate_id && reference.certificate_id !== trace.certificate.certificateId) {
     return handoffError("supplied certificate does not match the authoritative Trace certificate");
   }
 
