@@ -1,5 +1,6 @@
 import { createServer, type ServerResponse } from "node:http";
 import { toNodeHandler } from "@modelcontextprotocol/node";
+import { getChryPckGovernedConnectorManifest } from "./mcp/connector-manifest.js";
 import { buildHealthPayload, evaluateMcpAccess, getChryPckMcpRuntime } from "./mcp/http-runtime.js";
 
 const runtime = getChryPckMcpRuntime();
@@ -16,6 +17,15 @@ const httpServer = createServer((req, res) => {
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
     res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
     res.end(JSON.stringify(buildHealthPayload(runtime)));
+    return;
+  }
+
+  if (requestUrl.pathname === "/connector-manifest" && req.method === "GET") {
+    res.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "public, max-age=300, stale-while-revalidate=3600"
+    });
+    res.end(JSON.stringify(getChryPckGovernedConnectorManifest()));
     return;
   }
 
