@@ -50,6 +50,18 @@ export type ChryPckWorkflowPhase = {
   readonly guidance: string;
 };
 
+export type ChryPckAnalysisMode =
+  | {
+      readonly kind: "trace";
+      readonly when: string;
+      readonly input: "analysis: { kind: 'trace', max_hops?, max_branches? }";
+    }
+  | {
+      readonly kind: "bounded-event-trace";
+      readonly when: string;
+      readonly input: "analysis: { kind: 'bounded-event-trace', sourceSymbol, targetEffect?, options? }";
+    };
+
 export type ChryPckGovernedConnectorManifest = {
   readonly schema: typeof GOVERNED_CONNECTOR_MANIFEST_SCHEMA;
   readonly schemaVersion: typeof GOVERNED_CONNECTOR_MANIFEST_VERSION;
@@ -71,18 +83,7 @@ export type ChryPckGovernedConnectorManifest = {
     readonly strategy: "analyze-narrow-execute-validate";
     readonly summary: string;
     readonly diagnosticSurfaces: readonly ChryPckDiagnosticSurface[];
-    readonly analysisModes: readonly [
-      {
-        readonly kind: "trace";
-        readonly when: string;
-        readonly input: "analysis: { kind: 'trace', max_hops?, max_branches? }";
-      },
-      {
-        readonly kind: "bounded-event-trace";
-        readonly when: string;
-        readonly input: "analysis: { kind: 'bounded-event-trace', sourceSymbol, targetEffect?, options? }";
-      },
-    ];
+    readonly analysisModes: readonly ChryPckAnalysisMode[];
     readonly phases: readonly ChryPckWorkflowPhase[];
     readonly patchStrategy: string;
     readonly failurePolicy: string;
@@ -268,10 +269,8 @@ function validateManifest(manifest: ChryPckGovernedConnectorManifest): void {
   if (manifest.workflow.phases.length < 6) {
     throw new Error("ChryPck governed connector manifest requires the complete staged workflow.");
   }
-  if (
-    manifest.workflow.analysisModes[0].kind !== "trace" ||
-    manifest.workflow.analysisModes[1].kind !== "bounded-event-trace"
-  ) {
+  const analysisKinds = new Set(manifest.workflow.analysisModes.map((mode) => mode.kind));
+  if (!analysisKinds.has("trace") || !analysisKinds.has("bounded-event-trace")) {
     throw new Error("ChryPck governed connector manifest must publish both supported trace analysis modes.");
   }
 
