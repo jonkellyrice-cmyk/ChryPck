@@ -1,5 +1,6 @@
 import type { AnalysisResult } from "../analysis/analyzer.js";
 import type { RepositoryModel, SymbolRecord } from "../repository/model.js";
+import type { CertifiedTracePlanningEvidence } from "./trace-handoff.js";
 
 const STOP_WORDS = new Set([
   "the", "and", "for", "from", "into", "with", "that", "this", "make", "change",
@@ -51,6 +52,7 @@ export interface PatchCorridor {
 
 export interface PatchCorridorOptions {
   readonly diagnostics?: readonly AnalysisResult[];
+  readonly traceEvidence?: CertifiedTracePlanningEvidence;
   readonly maxFiles?: number;
   readonly minOwnerScore?: number;
 }
@@ -82,7 +84,42 @@ function fileText(model: RepositoryModel, path: string): string {
   return model.snapshot.files.find(file => file.path === path)?.text ?? "";
 }
 
-function fileScore(model: RepositoryModel, path: string, terms: readonly string[]): number {
+function traceEvidenceScore(
+  path: string,
+  terms: readonly string[],
+  traceEvidence: CertifiedTracePlanningEvidence | undefined
+): number {
+  if (!traceEvidence) return 0;
+  const hops = traceEvidence.path.filter(hop => hop.file === path);
+  if (hops.length === 0) return 0;
+
+  const file = normalize(path);
+  const symbols = normalize(hops.map(hop => hop.symbol).join(" "));
+  let score = 0;
+  for (const term of terms) {
+    if (symbols.includes(term)) score += 6;
+    if (file.includes(term)) score += 3;
+  }
+
+  const blocker = traceEvidence.firstBlocker;
+  if (blocker?.file === path) {
+    const blockerName = normalize(blocker.symbol);
+    for (const term of terms) if (blockerName.includes(term)) score += 4;
+  }
+  const terminal = traceEvidence.terminalEffect;
+  if (terminal?.file === path) {
+    const effectText = normalize(`${terminal.kind} ${terminal.symbol ?? ""}`);
+    for (const term of terms) if (effectText.includes(term)) score += 4;
+  }
+  return score;
+}
+
+function fileScore(
+  model: RepositoryModel,
+  path: string,
+  terms: readonly string[],
+  traceEvidence?: CertifiedTracePlanningEvidence
+): number {
   const facts = model.fileFacts.find(row => row.file === path);
   if (!facts) return 0;
   const haystacks = [
@@ -99,12 +136,19 @@ function fileScore(model: RepositoryModel, path: string, terms: readonly string[
   }
   const incoming = model.dependencies.filter(edge => edge.to === path).length;
   const outgoing = model.dependencies.filter(edge => edge.from === path).length;
-  return score + Math.min(4, incoming) + Math.min(3, outgoing);
+  return score
+    + Math.min(4, incoming)
+    + Math.min(3, outgoing)
+    + traceEvidenceScore(path, terms, traceEvidence);
 }
 
-function candidateOwners(model: RepositoryModel, terms: readonly string[]): readonly { path: string; score: number }[] {
+function candidateOwners(
+  model: RepositoryModel,
+  terms: readonly string[],
+  traceEvidence?: CertifiedTracePlanningEvidence
+): readonly { path: string; score: number }[] {
   return model.fileFacts
-    .map(facts => ({ path: facts.file, score: fileScore(model, facts.file, terms) }))
+    .map(facts => ({ path: facts.file, score: fileScore(model, facts.file, terms, traceEvidence) }))
     .filter(row => row.score > 0)
     .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
 }
@@ -140,6 +184,21 @@ function shortestPath(graph: ReadonlyMap<string, ReadonlySet<string>>, start: st
   return [];
 }
 
+function certifiedTracePathBetween(
+  traceEvidence: CertifiedTracePlanningEvidence | undefined,
+  start: string,
+  end: string
+): string[] {
+  if (!traceEvidence || start === end) return [];
+  const files = traceEvidence.path.map(hop => hop.file);
+  const startIndex = files.indexOf(start);
+  const endIndex = files.indexOf(end);
+  if (startIndex < 0 || endIndex < 0) return [];
+  const low = Math.min(startIndex, endIndex);
+  const high = Math.max(startIndex, endIndex);
+  return [...new Set(files.slice(low, high + 1))];
+}
+
 function symbolAnchors(model: RepositoryModel, path: string, terms: readonly string[]): CorridorSymbolAnchor[] {
   const facts = model.fileFacts.find(row => row.file === path);
   if (!facts) return [];
@@ -164,7 +223,7 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
   const graph = adjacency(model);
   const preliminary = clauses.map((text, index) => {
     const terms = termsFor(text);
-    const candidates = candidateOwners(model, terms);
+    const candidates = candidateOwners(model, terms, options.traceEvidence);
     const best = candidates[0] ?? null;
     const runnerUp = candidates[1] ?? null;
     const decisive = Boolean(best && best.score >= minOwnerScore && (!runnerUp || best.score >= runnerUp.score + 2));
@@ -179,6 +238,7 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
     };
   });
   const anchor = preliminary.find(row => row.owner)?.owner ?? null;
+  const traceFiles = new Set(options.traceEvidence?.path.map(hop => hop.file) ?? []);
   const clauseRows: CorridorClause[] = preliminary.map(row => {
     if (!row.owner) {
       return Object.freeze({
@@ -187,11 +247,16 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
         basis: row.candidateOwners.length ? "owner evidence remained ambiguous" : "no repository evidence matched the clause"
       });
     }
-    const path = anchor ? shortestPath(graph, anchor, row.owner) : [row.owner];
+    const tracedPath = anchor ? certifiedTracePathBetween(options.traceEvidence, anchor, row.owner) : [];
+    const path = tracedPath.length ? tracedPath : anchor ? shortestPath(graph, anchor, row.owner) : [row.owner];
+    const traceBacked = traceFiles.has(row.owner);
     return Object.freeze({
       id: row.id, text: row.text, terms: row.terms, owner: row.owner,
       candidateOwners: row.candidateOwners, path: path.length ? path : [row.owner], score: row.score,
-      complete: true, basis: "unique repository-model evidence owner"
+      complete: true,
+      basis: traceBacked
+        ? "unique repository-model evidence owner strengthened by certified Trace lineage"
+        : "unique repository-model evidence owner"
     });
   });
 
@@ -205,8 +270,11 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
   const fileRows: CorridorFile[] = [...selected]
     .map(path => {
       const supportingClauses = clauseRows.filter(clause => clause.owner === path || clause.path.includes(path));
-      const score = fileScore(model, path, allTerms);
+      const score = fileScore(model, path, allTerms, options.traceEvidence);
       const reasons = supportingClauses.map(clause => `${clause.id}: ${clause.owner === path ? "owner" : "dependency path"}`);
+      if (traceFiles.has(path) && options.traceEvidence) {
+        reasons.push(`certified Trace lineage from ${options.traceEvidence.sourceRunId}`);
+      }
       const anchors = symbolAnchors(model, path, allTerms);
       const confidence = Math.min(1, Math.max(0.2, score / 24));
       return Object.freeze({ path, reasons: Object.freeze(reasons), confidence, score, symbols: Object.freeze(anchors) });
