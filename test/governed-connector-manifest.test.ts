@@ -17,6 +17,7 @@ test("governed connector manifest exactly matches the public MCP tool surface", 
     CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.schemaVersion,
     GOVERNED_CONNECTOR_MANIFEST_VERSION,
   );
+  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 2);
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.id, "chrypck");
   assert.equal(
     CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.selectionMode,
@@ -34,6 +35,52 @@ test("governed connector manifest exactly matches the public MCP tool surface", 
       .sort(),
     [...CHRYPCK_TOOL_NAMES].sort(),
   );
+});
+
+test("governed connector manifest publishes aliases, diagnostics, and the staged workflow", () => {
+  const manifest = CHRYPCK_GOVERNED_CONNECTOR_MANIFEST;
+  assert.ok(manifest.connector.aliases.includes("ChryPck"));
+  assert.ok(manifest.connector.aliases.includes("CherryPick"));
+  assert.ok(manifest.connector.aliases.includes("Cherry Pick"));
+
+  assert.deepEqual(
+    manifest.workflow.analysisModes.map((mode) => mode.kind),
+    ["trace", "bounded-event-trace"],
+  );
+  for (const diagnosticId of [
+    "dependency-graph",
+    "dependency-watershed",
+    "symbol-families",
+    "effect-atlas",
+    "integration-surfaces",
+    "runtime-signals",
+    "state-namespaces",
+    "native-contracts",
+    "patch-corridor",
+    "context-pack",
+    "change-propagation",
+  ]) {
+    assert.ok(
+      manifest.workflow.diagnosticSurfaces.some(
+        (surface) => surface.id === diagnosticId,
+      ),
+      `missing diagnostic surface ${diagnosticId}`,
+    );
+  }
+
+  assert.deepEqual(
+    manifest.workflow.phases.map((phase) => phase.id),
+    [
+      "general-analysis",
+      "focused-analysis",
+      "certified-context",
+      "cross-cutting-patch",
+      "execute",
+      "verify",
+    ],
+  );
+  assert.match(manifest.workflow.patchStrategy, /one coherent cross-cutting patch/i);
+  assert.match(manifest.workflow.failurePolicy, /do not claim ChryPck is unavailable/i);
 });
 
 test("governed connector manifest keeps writes explicit and reads automatic", () => {
