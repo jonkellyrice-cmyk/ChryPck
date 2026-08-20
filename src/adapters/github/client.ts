@@ -1,3 +1,7 @@
+import { Readable } from "node:stream";
+import { createGunzip } from "node:zlib";
+import { extract } from "tar-stream";
+
 export interface GitHubRepositoryFileEntry {
   readonly path: string;
   readonly sha: string;
@@ -12,6 +16,7 @@ export interface GitHubTransportClient {
   resolveCommit(repository: string, ref: string): Promise<string>;
   listFiles(repository: string, sha: string): Promise<readonly GitHubRepositoryFileEntry[]>;
   readTextFile(repository: string, path: string, sha: string): Promise<GitHubTextFile | null>;
+  readTextFiles(repository: string, entries: readonly GitHubRepositoryFileEntry[], sha: string): Promise<ReadonlyMap<string, GitHubTextFile>>;
   commitFiles(repository: string, baseSha: string, targetRef: string, message: string, changes: ReadonlyMap<string, string | null>): Promise<{ sha: string }>;
 }
 
@@ -109,6 +114,57 @@ export class GitHubRestTransport implements GitHubTransportClient {
       if (error instanceof GitHubTransportError && error.status === 404) return null;
       throw error;
     }
+  }
+
+  async readTextFiles(
+    repository: string,
+    entries: readonly GitHubRepositoryFileEntry[],
+    sha: string
+  ): Promise<ReadonlyMap<string, GitHubTextFile>> {
+    if (entries.length === 0) return new Map();
+    const repo = encodeRepository(repository);
+    const response = await this.response(`/repos/${repo}/tarball/${encodeURIComponent(sha)}`, {
+      headers: { Accept: "application/vnd.github+json" }
+    });
+    if (!response.body) throw new Error(`GitHub returned an empty repository archive for ${repository}@${sha}.`);
+
+    const expected = new Map(entries.map(entry => [entry.path, entry]));
+    const files = new Map<string, GitHubTextFile>();
+    const archive = extract();
+    const completed = new Promise<void>((resolve, reject) => {
+      archive.on("entry", (header, stream, next) => {
+        const path = header.name.split("/").slice(1).join("/");
+        const entry = expected.get(path);
+        if (!entry || header.type !== "file") {
+          stream.resume();
+          stream.once("end", next);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        let size = 0;
+        stream.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > entry.size) {
+            stream.destroy(new Error(`GitHub archive entry exceeded its tree size: ${path}`));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        stream.once("error", reject);
+        stream.once("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          files.set(path, Object.freeze({ path, sha: entry.sha, size, text }));
+          next();
+        });
+      });
+      archive.once("finish", resolve);
+      archive.once("error", reject);
+    });
+    Readable.fromWeb(response.body as never).pipe(createGunzip()).pipe(archive);
+    await completed;
+    const missing = entries.find(entry => !files.has(entry.path));
+    if (missing) throw new Error(`GitHub archive did not contain tree entry: ${missing.path}`);
+    return files;
   }
 
   async commitFiles(repository: string, baseSha: string, targetRef: string, message: string, changes: ReadonlyMap<string, string | null>): Promise<{ sha: string }> {

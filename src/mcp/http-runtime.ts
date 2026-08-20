@@ -5,6 +5,9 @@ import { loadConfig, type ChryPckConfig } from "../config.js";
 import { userHandle, commonRepos, resolveRepositorySlug } from "./user-identity.js";
 import { GitHubRestTransport, GitHubTransportError } from "../adapters/github/client.js";
 import { GitHubRepositoryAdapter } from "../adapters/github/repository-adapter.js";
+import { createRepositorySnapshotCache } from "../repository/snapshot-cache.js";
+import { VercelBlobSemanticAtlasCache } from "../semantic/cache.js";
+import { VercelBlobSemanticBootstrapSessionStore } from "../semantic/bootstrap.js";
 import { PolicyError } from "../core/policy/errors.js";
 import { NativeMcpService } from "./service.js";
 import { createBuiltinProjectProfileRegistry } from "../project/builtin-profiles.js";
@@ -171,8 +174,13 @@ export interface ChryPckServiceRuntime {
 export function createChryPckServiceRuntime(env: NodeJS.ProcessEnv = process.env): ChryPckServiceRuntime {
   const config = loadConfig(env);
   const transport = new GitHubRestTransport(config.githubToken, config.githubApiVersion);
-  const repositoryAdapter = new GitHubRepositoryAdapter(transport, { maxTextFileBytes: config.maxTextFileBytes, maxRepositoryFiles: config.maxRepositoryFiles });
+  const repositoryAdapter = new GitHubRepositoryAdapter(transport, {
+    maxTextFileBytes: config.maxTextFileBytes,
+    maxRepositoryFiles: config.maxRepositoryFiles,
+    snapshotCache: createRepositorySnapshotCache(env)
+  });
   const projectProfiles = createBuiltinProjectProfileRegistry();
+  const blobToken = String(env.BLOB_READ_WRITE_TOKEN ?? "").trim();
   const nativeService = new NativeMcpService(repositoryAdapter, {
     allowedRepositories: config.allowedRepositories,
     defaultTargetRef: config.defaultTargetRef,
@@ -180,6 +188,8 @@ export function createChryPckServiceRuntime(env: NodeJS.ProcessEnv = process.env
     semanticMaxRegions: config.semanticMaxRegions,
     semanticRegionsPerChunk: config.semanticRegionsPerChunk,
     semanticCacheEntries: config.semanticCacheEntries,
+    ...(blobToken ? { semanticAtlasCache: new VercelBlobSemanticAtlasCache(blobToken) } : {}),
+    ...(blobToken ? { semanticBootstrapStore: new VercelBlobSemanticBootstrapSessionStore(blobToken) } : {}),
     projectProfiles
   });
   return { config, projectProfiles, nativeService };

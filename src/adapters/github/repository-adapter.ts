@@ -2,11 +2,13 @@ import type { RepositoryAdapter, RepositoryPublishRequest, RepositoryPublishResu
 import { createSnapshot, type RepositoryFile, type RepositoryFileKind, type RepositorySnapshot } from "../../repository/snapshot.js";
 import { createRepositorySourceProfile, isProfileSourcePath, normalizeRepositoryPath, type RepositorySourceProfile } from "../../repository/source-profile.js";
 import type { GitHubRepositoryFileEntry, GitHubTransportClient } from "./client.js";
+import { InMemoryRepositorySnapshotCache, type RepositorySnapshotCache } from "../../repository/snapshot-cache.js";
 
 export interface GitHubRepositoryAdapterOptions {
   readonly profile?: RepositorySourceProfile;
   readonly maxTextFileBytes?: number;
   readonly maxRepositoryFiles?: number;
+  readonly snapshotCache?: RepositorySnapshotCache;
 }
 
 function fileKind(profile: RepositorySourceProfile, path: string): RepositoryFileKind {
@@ -38,34 +40,41 @@ export class GitHubRepositoryAdapter implements RepositoryAdapter {
   private readonly profile: RepositorySourceProfile;
   private readonly maxTextFileBytes: number;
   private readonly maxRepositoryFiles: number;
+  private readonly snapshotCache: RepositorySnapshotCache;
 
   constructor(private readonly client: GitHubTransportClient, options: GitHubRepositoryAdapterOptions = {}) {
     this.profile = options.profile ?? createRepositorySourceProfile();
     this.maxTextFileBytes = options.maxTextFileBytes ?? 512 * 1024;
     this.maxRepositoryFiles = options.maxRepositoryFiles ?? 12000;
+    this.snapshotCache = options.snapshotCache ?? new InMemoryRepositorySnapshotCache();
     if (this.maxTextFileBytes < 1 || this.maxRepositoryFiles < 1) throw new Error("GitHub Repository Adapter limits must be positive.");
   }
 
   async snapshot(repository: string, ref: string): Promise<RepositorySnapshot> {
     const sha = await this.client.resolveCommit(repository, ref);
+    const cached = await this.snapshotCache.get(repository, sha);
+    if (cached) return cached;
     const entries = await this.client.listFiles(repository, sha);
     if (entries.length > this.maxRepositoryFiles) throw new Error(`Repository snapshot contains ${entries.length} files; limit is ${this.maxRepositoryFiles}.`);
-    const files: RepositoryFile[] = [];
-    for (const entry of entries) files.push(await this.materialize(repository, sha, entry));
-    return createSnapshot(repository, sha, files);
+    const readableEntries = entries.filter(entry => this.shouldHydrate(entry));
+    const hydrated = await this.client.readTextFiles(repository, readableEntries, sha);
+    const files = entries.map(entry => this.materialize(entry, hydrated));
+    const snapshot = createSnapshot(repository, sha, files);
+    await this.snapshotCache.put(snapshot);
+    return snapshot;
   }
 
-  private async materialize(repository: string, sha: string, entry: GitHubRepositoryFileEntry): Promise<RepositoryFile> {
+  private shouldHydrate(entry: GitHubRepositoryFileEntry): boolean {
+    const path = normalizeRepositoryPath(entry.path);
+    return Boolean(path) && entry.size <= this.maxTextFileBytes &&
+      (isProfileSourcePath(this.profile, path) || isSemanticMetadataTextPath(path));
+  }
+
+  private materialize(entry: GitHubRepositoryFileEntry, hydrated: ReadonlyMap<string, { readonly text: string }>): RepositoryFile {
     const path = normalizeRepositoryPath(entry.path), kind = fileKind(this.profile, path);
     if (!path) throw new Error(`GitHub returned an invalid repository path: ${entry.path}`);
-    const readText = isProfileSourcePath(this.profile, path) || isSemanticMetadataTextPath(path);
-    if (!readText || entry.size > this.maxTextFileBytes) {
-      return Object.freeze({ path, sha: entry.sha, size: entry.size, kind });
-    }
-    const file = await this.client.readTextFile(repository, path, sha);
-    if (!file) throw new Error(`GitHub tree referenced a file that could not be read at the same commit: ${path}`);
-    if (file.sha !== entry.sha) throw new Error(`GitHub file SHA changed inside immutable snapshot: ${path}`);
-    return Object.freeze({ path, sha: entry.sha, size: file.size, text: file.text, kind });
+    const file = hydrated.get(path);
+    return Object.freeze({ path, sha: entry.sha, size: entry.size, ...(file ? { text: file.text } : {}), kind });
   }
 
   async publish(request: RepositoryPublishRequest): Promise<RepositoryPublishResult> {

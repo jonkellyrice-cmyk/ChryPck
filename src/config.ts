@@ -64,8 +64,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ChryPckConfig 
     maxTextFileBytes: positiveInteger(env.CHRYPCK_MAX_TEXT_FILE_BYTES, 524288, "CHRYPCK_MAX_TEXT_FILE_BYTES"),
     maxRepositoryFiles: positiveInteger(env.CHRYPCK_MAX_REPOSITORY_FILES, 12000, "CHRYPCK_MAX_REPOSITORY_FILES"),
     maxMutationFileBytes: positiveInteger(env.CHRYPCK_MAX_MUTATION_FILE_BYTES, 1048576, "CHRYPCK_MAX_MUTATION_FILE_BYTES"),
-    semanticMaxRegions: positiveInteger(env.CHRYPCK_SEMANTIC_MAX_REGIONS, 32, "CHRYPCK_SEMANTIC_MAX_REGIONS"),
-    semanticRegionsPerChunk: positiveInteger(env.CHRYPCK_SEMANTIC_REGIONS_PER_CHUNK, 4, "CHRYPCK_SEMANTIC_REGIONS_PER_CHUNK"),
+    semanticMaxRegions: positiveInteger(env.CHRYPCK_SEMANTIC_MAX_REGIONS, 16, "CHRYPCK_SEMANTIC_MAX_REGIONS"),
+    semanticRegionsPerChunk: positiveInteger(env.CHRYPCK_SEMANTIC_REGIONS_PER_CHUNK, 1, "CHRYPCK_SEMANTIC_REGIONS_PER_CHUNK"),
     semanticCacheEntries: positiveInteger(env.CHRYPCK_SEMANTIC_CACHE_ENTRIES, 32, "CHRYPCK_SEMANTIC_CACHE_ENTRIES")
   });
 }

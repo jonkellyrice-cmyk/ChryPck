@@ -18,10 +18,11 @@ import type { ProjectProfile } from "../project/profile.js";
 import { architectureCorridor, planArchitecture, type ArchitecturePlan } from "../architecture/index.js";
 import { analyzeTrace, type TraceResult } from "../analysis/trace.js";
 import type { AuthoringIntent } from "../mutation/authoring-compiler.js";
-import { InMemorySemanticAtlasCache, semanticAtlasCacheKey } from "../semantic/cache.js";
+import { InMemorySemanticAtlasCache, semanticAtlasCacheKey, type SemanticAtlasCache } from "../semantic/cache.js";
 import {
   DEFAULT_SEMANTIC_BOOTSTRAP_REGIONS_PER_CHUNK,
-  SemanticBootstrapCoordinator
+  SemanticBootstrapCoordinator,
+  type SemanticBootstrapSessionStore
 } from "../semantic/bootstrap.js";
 import { DEFAULT_SEMANTIC_MAX_REGIONS } from "../semantic/region-builder.js";
 import { prepareSemanticAtlas } from "../semantic/semantic-atlas.js";
@@ -44,6 +45,8 @@ export interface NativeMcpServiceOptions {
   readonly semanticMaxRegions?: number;
   readonly semanticRegionsPerChunk?: number;
   readonly semanticCacheEntries?: number;
+  readonly semanticAtlasCache?: SemanticAtlasCache;
+  readonly semanticBootstrapStore?: SemanticBootstrapSessionStore;
 }
 
 interface RunBinding {
@@ -173,16 +176,17 @@ export class NativeMcpService {
   readonly orchestrator = new NativeOrchestrator();
   readonly #bindings = new Map<string, RunBinding>();
   readonly #semanticBootstrap: SemanticBootstrapCoordinator;
-  readonly #semanticCache: InMemorySemanticAtlasCache;
+  readonly #semanticCache: SemanticAtlasCache;
 
   constructor(
     private readonly adapter: RepositoryAdapter,
     private readonly options: NativeMcpServiceOptions
   ) {
     this.#semanticBootstrap = new SemanticBootstrapCoordinator(
-      options.semanticRegionsPerChunk ?? DEFAULT_SEMANTIC_BOOTSTRAP_REGIONS_PER_CHUNK
+      options.semanticRegionsPerChunk ?? DEFAULT_SEMANTIC_BOOTSTRAP_REGIONS_PER_CHUNK,
+      options.semanticBootstrapStore
     );
-    this.#semanticCache = new InMemorySemanticAtlasCache(options.semanticCacheEntries ?? 32);
+    this.#semanticCache = options.semanticAtlasCache ?? new InMemorySemanticAtlasCache(options.semanticCacheEntries ?? 32);
   }
 
   private allowedRepository(value: string): string {
@@ -273,7 +277,7 @@ export class NativeMcpService {
       commitSha: snapshot.commitSha,
       projectProfile: profile.id
     });
-    let semanticOrientation = this.#semanticCache.get(semanticKey);
+    let semanticOrientation = await this.#semanticCache.get(semanticKey);
     if (!semanticOrientation) {
       const semanticPreparation = prepareSemanticAtlas(model, {
         maxRegions: this.options.semanticMaxRegions ?? DEFAULT_SEMANTIC_MAX_REGIONS,
@@ -282,7 +286,7 @@ export class NativeMcpService {
 
       if (input.semantic_bootstrap) {
         try {
-          const advanced = this.#semanticBootstrap.advance(input.semantic_bootstrap, {
+          const advanced = await this.#semanticBootstrap.advance(input.semantic_bootstrap, {
             repository,
             commitSha: snapshot.commitSha,
             projectProfile: profile.id
@@ -300,10 +304,10 @@ export class NativeMcpService {
             });
           }
           semanticOrientation = advanced.orientation;
-          this.#semanticCache.put(semanticKey, semanticOrientation);
+          await this.#semanticCache.put(semanticKey, semanticOrientation);
         } catch (error) {
           if (!(error instanceof Error) || !/Unknown or expired semantic bootstrap/.test(error.message)) throw error;
-          const restarted = this.#semanticBootstrap.begin({
+          const restarted = await this.#semanticBootstrap.begin({
             repository,
             commitSha: snapshot.commitSha,
             projectProfile: profile.id,
@@ -322,7 +326,7 @@ export class NativeMcpService {
           });
         }
       } else {
-        const started = this.#semanticBootstrap.begin({
+        const started = await this.#semanticBootstrap.begin({
           repository,
           commitSha: snapshot.commitSha,
           projectProfile: profile.id,

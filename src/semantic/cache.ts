@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { get, put } from "@vercel/blob";
 import type { SemanticAtlas, SemanticCoverageLedger, SemanticOrientation } from "./types.js";
 
 export interface SemanticAtlasCacheKey {
@@ -8,8 +10,8 @@ export interface SemanticAtlasCacheKey {
 }
 
 export interface SemanticAtlasCache {
-  get(key: SemanticAtlasCacheKey): SemanticOrientation | null;
-  put(key: SemanticAtlasCacheKey, value: SemanticOrientation): void;
+  get(key: SemanticAtlasCacheKey): Promise<SemanticOrientation | null>;
+  put(key: SemanticAtlasCacheKey, value: SemanticOrientation): Promise<void>;
 }
 
 function cacheKey(key: SemanticAtlasCacheKey): string {
@@ -34,7 +36,7 @@ export class InMemorySemanticAtlasCache implements SemanticAtlasCache {
     if (!Number.isInteger(maxEntries) || maxEntries < 1) throw new Error("Semantic Atlas cache size must be a positive integer.");
   }
 
-  get(key: SemanticAtlasCacheKey): SemanticOrientation | null {
+  async get(key: SemanticAtlasCacheKey): Promise<SemanticOrientation | null> {
     const resolvedKey = cacheKey(key);
     const value = this.#entries.get(resolvedKey);
     if (!value) return null;
@@ -43,7 +45,7 @@ export class InMemorySemanticAtlasCache implements SemanticAtlasCache {
     return withCacheHit(value, true);
   }
 
-  put(key: SemanticAtlasCacheKey, value: SemanticOrientation): void {
+  async put(key: SemanticAtlasCacheKey, value: SemanticOrientation): Promise<void> {
     const resolvedKey = cacheKey(key);
     this.#entries.delete(resolvedKey);
     this.#entries.set(resolvedKey, withCacheHit(value, false));
@@ -52,6 +54,28 @@ export class InMemorySemanticAtlasCache implements SemanticAtlasCache {
       if (!oldest) break;
       this.#entries.delete(oldest);
     }
+  }
+}
+
+function blobPath(key: SemanticAtlasCacheKey): string {
+  const digest = createHash("sha256").update(cacheKey(key)).digest("hex");
+  return `chrypck/semantic-atlas/v1/${digest}.json`;
+}
+
+export class VercelBlobSemanticAtlasCache implements SemanticAtlasCache {
+  constructor(private readonly token: string) {}
+
+  async get(key: SemanticAtlasCacheKey): Promise<SemanticOrientation | null> {
+    const result = await get(blobPath(key), { access: "private", token: this.token, useCache: true });
+    if (!result || result.statusCode !== 200 || !result.stream) return null;
+    return withCacheHit(await new Response(result.stream).json() as SemanticOrientation, true);
+  }
+
+  async put(key: SemanticAtlasCacheKey, value: SemanticOrientation): Promise<void> {
+    await put(blobPath(key), JSON.stringify(withCacheHit(value, false)), {
+      access: "private", addRandomSuffix: false, allowOverwrite: true,
+      contentType: "application/json", token: this.token
+    });
   }
 }
 

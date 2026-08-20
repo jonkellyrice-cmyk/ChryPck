@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { get, put, del } from "@vercel/blob";
 import type {
   SemanticAtlas,
   SemanticBootstrapChunk,
@@ -12,7 +13,7 @@ import type {
   SemanticSubmittedClaim
 } from "./types.js";
 
-export const DEFAULT_SEMANTIC_BOOTSTRAP_REGIONS_PER_CHUNK = 4;
+export const DEFAULT_SEMANTIC_BOOTSTRAP_REGIONS_PER_CHUNK = 1;
 
 interface SemanticBootstrapSession {
   readonly id: string;
@@ -24,6 +25,47 @@ interface SemanticBootstrapSession {
   readonly submissions: Map<string, SemanticRegionInterpretationInput>;
   rejectedClaims: number;
   nextChunkIndex: number;
+}
+
+interface StoredSemanticBootstrapSession {
+  readonly id: string;
+  readonly repository: string;
+  readonly commitSha: string;
+  readonly projectProfile: string;
+  readonly packets: readonly SemanticRegionEvidence[];
+  readonly submissions: readonly SemanticRegionInterpretationInput[];
+  readonly rejectedClaims: number;
+  readonly nextChunkIndex: number;
+}
+
+export interface SemanticBootstrapSessionStore {
+  get(id: string): Promise<StoredSemanticBootstrapSession | null>;
+  put(session: StoredSemanticBootstrapSession): Promise<void>;
+  delete(id: string): Promise<void>;
+}
+
+export class InMemorySemanticBootstrapSessionStore implements SemanticBootstrapSessionStore {
+  readonly #sessions = new Map<string, StoredSemanticBootstrapSession>();
+  async get(id: string) { return this.#sessions.get(id) ?? null; }
+  async put(session: StoredSemanticBootstrapSession) { this.#sessions.set(session.id, session); }
+  async delete(id: string) { this.#sessions.delete(id); }
+}
+
+export class VercelBlobSemanticBootstrapSessionStore implements SemanticBootstrapSessionStore {
+  constructor(private readonly token: string) {}
+  private path(id: string) { return `chrypck/semantic-bootstrap/v1/${id}.json`; }
+  async get(id: string): Promise<StoredSemanticBootstrapSession | null> {
+    const result = await get(this.path(id), { access: "private", token: this.token, useCache: false });
+    if (!result || result.statusCode !== 200 || !result.stream) return null;
+    return await new Response(result.stream).json() as StoredSemanticBootstrapSession;
+  }
+  async put(session: StoredSemanticBootstrapSession): Promise<void> {
+    await put(this.path(session.id), JSON.stringify(session), {
+      access: "private", addRandomSuffix: false, allowOverwrite: true,
+      contentType: "application/json", token: this.token
+    });
+  }
+  async delete(id: string): Promise<void> { await del(this.path(id), { token: this.token }); }
 }
 
 export interface SemanticBootstrapStart {
@@ -245,21 +287,27 @@ function composeOrientation(session: SemanticBootstrapSession): SemanticOrientat
 }
 
 export class SemanticBootstrapCoordinator {
-  readonly #sessions = new Map<string, SemanticBootstrapSession>();
-
-  constructor(private readonly regionsPerChunk = DEFAULT_SEMANTIC_BOOTSTRAP_REGIONS_PER_CHUNK) {
+  constructor(
+    private readonly regionsPerChunk = DEFAULT_SEMANTIC_BOOTSTRAP_REGIONS_PER_CHUNK,
+    private readonly store: SemanticBootstrapSessionStore = new InMemorySemanticBootstrapSessionStore()
+  ) {
     if (!Number.isInteger(regionsPerChunk) || regionsPerChunk < 1) throw new Error("Semantic bootstrap chunk size must be a positive integer.");
   }
 
-  begin(args: {
+  async begin(args: {
     readonly repository: string;
     readonly commitSha: string;
     readonly projectProfile: string;
     readonly packets: readonly SemanticRegionEvidence[];
-  }): SemanticBootstrapStart {
+  }): Promise<SemanticBootstrapStart> {
     if (args.packets.length === 0) throw new Error("Semantic bootstrap requires at least one region evidence packet.");
     const id = bootstrapId(args.repository, args.commitSha, args.projectProfile, args.packets);
-    let session = this.#sessions.get(id);
+    const stored = await this.store.get(id);
+    let session: SemanticBootstrapSession | undefined = stored ? {
+      ...stored,
+      chunks: buildChunks(id, stored.packets, this.regionsPerChunk),
+      submissions: new Map(stored.submissions.map(row => [row.region_id, row]))
+    } : undefined;
     if (!session) {
       const chunks = buildChunks(id, args.packets, this.regionsPerChunk);
       session = {
@@ -273,18 +321,23 @@ export class SemanticBootstrapCoordinator {
         rejectedClaims: 0,
         nextChunkIndex: 0
       };
-      this.#sessions.set(id, session);
+      await this.store.put(this.serialize(session));
     }
     const currentChunk = session.chunks[session.nextChunkIndex];
     if (!currentChunk) throw new Error("Semantic bootstrap session has no pending chunk.");
     return Object.freeze({ bootstrapId: id, currentChunk, chunkCount: session.chunks.length });
   }
 
-  advance(
+  async advance(
     input: SemanticBootstrapSubmissionInput,
     expected: { readonly repository: string; readonly commitSha: string; readonly projectProfile: string }
-  ): SemanticBootstrapAdvance {
-    const session = this.#sessions.get(input.bootstrap_id);
+  ): Promise<SemanticBootstrapAdvance> {
+    const stored = await this.store.get(input.bootstrap_id);
+    const session: SemanticBootstrapSession | undefined = stored ? {
+      ...stored,
+      chunks: buildChunks(stored.id, stored.packets, this.regionsPerChunk),
+      submissions: new Map(stored.submissions.map(row => [row.region_id, row]))
+    } : undefined;
     if (!session) throw new Error(`Unknown or expired semantic bootstrap: ${input.bootstrap_id}`);
     if (
       session.repository !== expected.repository ||
@@ -308,10 +361,26 @@ export class SemanticBootstrapCoordinator {
     }
     session.nextChunkIndex += 1;
     const next = session.chunks[session.nextChunkIndex];
-    if (next) return Object.freeze({ complete: false as const, currentChunk: next });
+    if (next) {
+      await this.store.put(this.serialize(session));
+      return Object.freeze({ complete: false as const, currentChunk: next });
+    }
     const orientation = composeOrientation(session);
-    this.#sessions.delete(session.id);
+    await this.store.delete(session.id);
     return Object.freeze({ complete: true as const, orientation });
+  }
+
+  private serialize(session: SemanticBootstrapSession): StoredSemanticBootstrapSession {
+    return Object.freeze({
+      id: session.id,
+      repository: session.repository,
+      commitSha: session.commitSha,
+      projectProfile: session.projectProfile,
+      packets: session.packets,
+      submissions: Object.freeze([...session.submissions.values()]),
+      rejectedClaims: session.rejectedClaims,
+      nextChunkIndex: session.nextChunkIndex
+    });
   }
 }
 

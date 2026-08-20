@@ -41,16 +41,16 @@ function interpretation(region: SemanticRegionEvidence) {
   };
 }
 
-test("semantic bootstrap requires sequential bounded chunks and completes only after every region is interpreted", () => {
+test("semantic bootstrap requires sequential bounded chunks and completes only after every region is interpreted", async () => {
   const coordinator = new SemanticBootstrapCoordinator(1);
   const packets = [packet("repo", "Repository"), packet("bridge", "System Bridge")];
-  const started = coordinator.begin({ repository: "owner/repo", commitSha: "abc", projectProfile: "default", packets });
+  const started = await coordinator.begin({ repository: "owner/repo", commitSha: "abc", projectProfile: "default", packets });
 
   assert.equal(started.chunkCount, 2);
   assert.equal(started.currentChunk.chunk_index, 0);
   assert.match(started.currentChunk.instructions.join(" "), /Do not continue|Do not continue/i);
 
-  const first = coordinator.advance({
+  const first = await coordinator.advance({
     bootstrap_id: started.bootstrapId,
     chunk_id: started.currentChunk.chunk_id,
     interpretations: [interpretation(started.currentChunk.regions[0]!)]
@@ -60,7 +60,7 @@ test("semantic bootstrap requires sequential bounded chunks and completes only a
   if (first.complete) return;
   assert.equal(first.currentChunk.chunk_index, 1);
 
-  const second = coordinator.advance({
+  const second = await coordinator.advance({
     bootstrap_id: started.bootstrapId,
     chunk_id: first.currentChunk.chunk_id,
     interpretations: [interpretation(first.currentChunk.regions[0]!)]
@@ -74,23 +74,23 @@ test("semantic bootstrap requires sequential bounded chunks and completes only a
   assert.equal(second.orientation.coverage.synthesized_regions, 2);
 });
 
-test("semantic bootstrap rejects submissions for the wrong repository state", () => {
+test("semantic bootstrap rejects submissions for the wrong repository state", async () => {
   const coordinator = new SemanticBootstrapCoordinator(2);
   const packets = [packet("repo", "Repository")];
-  const started = coordinator.begin({ repository: "owner/repo", commitSha: "abc", projectProfile: "default", packets });
+  const started = await coordinator.begin({ repository: "owner/repo", commitSha: "abc", projectProfile: "default", packets });
 
-  assert.throws(() => coordinator.advance({
+  await assert.rejects(() => coordinator.advance({
     bootstrap_id: started.bootstrapId,
     chunk_id: started.currentChunk.chunk_id,
     interpretations: [interpretation(started.currentChunk.regions[0]!)]
   }, { repository: "owner/repo", commitSha: "changed", projectProfile: "default" }), /does not match/);
 });
 
-test("unsupported semantic claims are rejected instead of becoming architectural truth", () => {
+test("unsupported semantic claims are rejected instead of becoming architectural truth", async () => {
   const coordinator = new SemanticBootstrapCoordinator(2);
   const packets = [packet("repo", "Repository")];
-  const started = coordinator.begin({ repository: "owner/repo", commitSha: "abc", projectProfile: "default", packets });
-  const finished = coordinator.advance({
+  const started = await coordinator.begin({ repository: "owner/repo", commitSha: "abc", projectProfile: "default", packets });
+  const finished = await coordinator.advance({
     bootstrap_id: started.bootstrapId,
     chunk_id: started.currentChunk.chunk_id,
     interpretations: [{
