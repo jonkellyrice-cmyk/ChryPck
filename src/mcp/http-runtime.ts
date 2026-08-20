@@ -14,66 +14,19 @@ const repositoryPath = () => z.string().min(1).describe("Repository-relative pat
 const expectedOccurrences = () => z.number().int().positive().optional().describe("Optional exact match count used as an additional safety assertion before mutation.");
 
 const editSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("create_file"),
-    path: repositoryPath(),
-    content: z.string().describe("Complete UTF-8 text for the new file.")
-  }),
-  z.object({
-    type: z.literal("replace_file"),
-    path: repositoryPath(),
-    content: z.string().describe("Complete replacement UTF-8 text for the existing file.")
-  }),
-  z.object({
-    type: z.literal("replace_exact"),
-    path: repositoryPath(),
-    search: z.string().min(1).describe("Exact existing text that must be matched."),
-    replace: z.string().describe("Replacement text written in place of each certified exact match."),
-    expectedOccurrences: expectedOccurrences()
-  }),
-  z.object({
-    type: z.literal("insert_before_exact"),
-    path: repositoryPath(),
-    anchor: z.string().min(1).describe("Exact existing anchor text before which content is inserted."),
-    content: z.string().describe("Text inserted immediately before the exact anchor."),
-    expectedOccurrences: expectedOccurrences()
-  }),
-  z.object({
-    type: z.literal("insert_after_exact"),
-    path: repositoryPath(),
-    anchor: z.string().min(1).describe("Exact existing anchor text after which content is inserted."),
-    content: z.string().describe("Text inserted immediately after the exact anchor."),
-    expectedOccurrences: expectedOccurrences()
-  }),
-  z.object({
-    type: z.literal("delete_exact"),
-    path: repositoryPath(),
-    search: z.string().min(1).describe("Exact existing text to remove."),
-    expectedOccurrences: expectedOccurrences()
-  }),
-  z.object({
-    type: z.literal("remove_file"),
-    path: repositoryPath()
-  }),
-  z.object({
-    type: z.literal("move_file"),
-    from: repositoryPath().describe("Existing repository-relative source path."),
-    to: repositoryPath().describe("Repository-relative destination path authorized by the certified run.")
-  })
+  z.object({ type: z.literal("create_file"), path: repositoryPath(), content: z.string().describe("Complete UTF-8 text for the new file.") }),
+  z.object({ type: z.literal("replace_file"), path: repositoryPath(), content: z.string().describe("Complete replacement UTF-8 text for the existing file.") }),
+  z.object({ type: z.literal("replace_exact"), path: repositoryPath(), search: z.string().min(1).describe("Exact existing text that must be matched."), replace: z.string().describe("Replacement text written in place of each certified exact match."), expectedOccurrences: expectedOccurrences() }),
+  z.object({ type: z.literal("insert_before_exact"), path: repositoryPath(), anchor: z.string().min(1).describe("Exact existing anchor text before which content is inserted."), content: z.string().describe("Text inserted immediately before the exact anchor."), expectedOccurrences: expectedOccurrences() }),
+  z.object({ type: z.literal("insert_after_exact"), path: repositoryPath(), anchor: z.string().min(1).describe("Exact existing anchor text after which content is inserted."), content: z.string().describe("Text inserted immediately after the exact anchor."), expectedOccurrences: expectedOccurrences() }),
+  z.object({ type: z.literal("delete_exact"), path: repositoryPath(), search: z.string().min(1).describe("Exact existing text to remove."), expectedOccurrences: expectedOccurrences() }),
+  z.object({ type: z.literal("remove_file"), path: repositoryPath() }),
+  z.object({ type: z.literal("move_file"), from: repositoryPath().describe("Existing repository-relative source path."), to: repositoryPath().describe("Repository-relative destination path authorized by the certified run.") })
 ]);
 
 const architectureSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("decompose"),
-    paths: z.array(repositoryPath()).optional().describe("Optional source paths to consider for a review-required decomposition plan.")
-  }),
-  z.object({
-    kind: z.literal("move"),
-    moves: z.array(z.object({
-      from: repositoryPath().describe("Existing source path to move."),
-      to: repositoryPath().describe("Proposed destination path; execution requires explicit architecture approval.")
-    })).min(1).describe("Review-required path moves to plan; planning itself does not mutate the repository.")
-  })
+  z.object({ kind: z.literal("decompose"), paths: z.array(repositoryPath()).optional().describe("Optional source paths to consider for a review-required decomposition plan.") }),
+  z.object({ kind: z.literal("move"), moves: z.array(z.object({ from: repositoryPath().describe("Existing source path to move."), to: repositoryPath().describe("Proposed destination path; execution requires explicit architecture approval.") })).min(1).describe("Review-required path moves to plan; planning itself does not mutate the repository.") })
 ]);
 
 const semanticClaimSchema = z.object({
@@ -96,6 +49,17 @@ const semanticBootstrapSchema = z.object({
   interpretations: z.array(semanticInterpretationSchema).min(1).describe("Exactly one semantic interpretation for every region in the current chunk. ChryPck validates evidence references before accepting it.")
 }).describe("Mandatory host-LLM semantic bootstrap continuation. Supply only when chrypck_plan returned semantic_bootstrap.status='required'.");
 
+const traceOptionsSchema = z.object({
+  fileGlobAllow: z.array(z.string()).optional().describe("Optional file-glob allowlist for this bounded diagnostic trace."),
+  fileGlobDeny: z.array(z.string()).optional().describe("Optional file-glob denylist for this bounded diagnostic trace."),
+  symbolAllow: z.array(z.string()).optional().describe("Optional symbol allowlist for this bounded diagnostic trace."),
+  symbolDeny: z.array(z.string()).optional().describe("Optional symbol denylist for this bounded diagnostic trace."),
+  maxHops: z.number().int().positive().optional().describe("Optional maximum trace hops."),
+  maxBranches: z.number().int().positive().optional().describe("Optional maximum branches considered per hop."),
+  terminateOnFirstBlocker: z.boolean().optional().describe("Stop once the first evidence-backed blocker is found. Defaults to true."),
+  certifyMode: z.enum(["strict", "relaxed"]).optional().describe("Reserved trace certification posture; strict remains the default behavior.")
+}).optional().describe("Optional scope and traversal controls for the canonical bounded trace engine.");
+
 const executeSchema = z.union([
   z.object({
     run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."),
@@ -108,40 +72,24 @@ const executeSchema = z.union([
   }),
   z.object({
     run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."),
-    architecture_approval: z.object({
-      plan_id: z.string().min(1).describe("Server-issued architecture plan identifier being explicitly approved for execution.")
-    }).describe("Use this mode only to approve an already-issued review-required architecture plan."),
+    architecture_approval: z.object({ plan_id: z.string().min(1).describe("Server-issued architecture plan identifier being explicitly approved for execution.") }).describe("Use this mode only to approve an already-issued review-required architecture plan."),
     commit_message: z.string().trim().min(1).max(200).optional().describe("Optional commit message for the atomic publication.")
   })
 ]).describe("Execute exactly one mode: authoring_intent or architecture_approval. Never provide both.");
 
 function jsonToolResult(value: unknown, isError = false) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
-    ...(isError ? { isError: true } : {})
-  };
+  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }], ...(isError ? { isError: true } : {}) };
 }
 
 function normalizeError(error: unknown): Record<string, unknown> {
   if (error instanceof PolicyError) return { code: error.code, message: error.message, ...error.details };
-  if (error instanceof GitHubTransportError) {
-    return {
-      code: "GITHUB_TRANSPORT_ERROR",
-      status: error.status,
-      method: error.method,
-      apiPath: error.apiPath,
-      message: error.message
-    };
-  }
+  if (error instanceof GitHubTransportError) return { code: "GITHUB_TRANSPORT_ERROR", status: error.status, method: error.method, apiPath: error.apiPath, message: error.message };
   return { code: "CHRYPCK_ERROR", message: error instanceof Error ? error.message : String(error) };
 }
 
 async function toolBoundary<T>(operation: () => Promise<T> | T) {
-  try {
-    return jsonToolResult(await operation());
-  } catch (error) {
-    return jsonToolResult(normalizeError(error), true);
-  }
+  try { return jsonToolResult(await operation()); }
+  catch (error) { return jsonToolResult(normalizeError(error), true); }
 }
 
 export function registerChryPckTools(server: McpServer, nativeService: NativeMcpService): void {
@@ -149,35 +97,18 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_plan",
     {
       title: "Plan Governed Change",
-      description: "Start all governed repository work. On the first uncached plan for a repository commit/profile, ChryPck intentionally stops before ordinary diagnostics and returns semantic_bootstrap.status='required' plus one bounded metadata chunk. The host LLM must interpret every region in that chunk using only cited evidence_refs, call chrypck_plan again with semantic_bootstrap, repeat until semantic_bootstrap.status='complete', and only then continue the user's repository task. Once bootstrapped, each plan returns repository_atlas + coverage for structural orientation, semantic_atlas + semantic_coverage for repository purpose/subsystem responsibilities/boundaries, compressed diagnostics and certified corridor/context, optional trace analysis, and permitted_next_action. Semantic metadata is evidence-backed orientation, never mutation authority or a substitute for diagnostics/certified source.",
+      description: "Start all governed repository work. On the first uncached plan for a repository commit/profile, ChryPck intentionally stops before ordinary diagnostics and returns semantic_bootstrap.status='required' plus one bounded metadata chunk. The host LLM must interpret every region in that chunk using only cited evidence_refs, call chrypck_plan again with semantic_bootstrap, repeat until semantic_bootstrap.status='complete', and only then continue the user's repository task. Once bootstrapped, each plan returns repository_atlas + coverage for structural orientation, semantic_atlas + semantic_coverage for repository purpose/subsystem responsibilities/boundaries, compressed diagnostics and certified corridor/context, optional canonical trace analysis, and permitted_next_action. Trace is the single bounded evidence-backed BEFT-derived tracing mode; it may auto-resolve an evidence-supported entrypoint from the objective or accept an explicit sourceSymbol/targetEffect. Semantic metadata is evidence-backed orientation, never mutation authority or a substitute for diagnostics/certified source.",
       inputSchema: z.object({
         repository: z.string().min(1).describe("Repository slug. For the configured ChryPck owner, prefer the bare repository name (for example LEMONade_ORC); owner/name and GitHub URLs remain accepted when needed."),
         objective: z.string().trim().min(1).describe("Exact user-authorized repository outcome to investigate or implement. Keep the same objective while completing a semantic bootstrap continuation."),
         base_ref: z.string().trim().min(1).optional().describe("Existing branch/ref to inspect; server policy supplies the default when omitted."),
         architecture: architectureSchema.optional().describe("Optional read-only structural planning request. Move/decompose plans require later explicit execution/approval."),
-        analysis: z.union([
-          z.object({
-            kind: z.literal("trace"),
-            max_hops: z.number().int().positive().optional().describe("Optional maximum causal-trace depth."),
-            max_branches: z.number().int().positive().optional().describe("Optional maximum trace branches to consider.")
-          }),
-          z.object({
-            kind: z.literal("bounded-event-trace"),
-            sourceSymbol: z.string().trim().min(1).describe("Known source symbol from which the bounded event-flow trace begins."),
-            targetEffect: z.string().trim().min(1).optional().describe("Optional terminal effect the trace should try to certify."),
-            options: z.object({
-              fileGlobAllow: z.array(z.string()).optional().describe("Optional file-glob allowlist for this diagnostic trace."),
-              fileGlobDeny: z.array(z.string()).optional().describe("Optional file-glob denylist for this diagnostic trace."),
-              namespaceAllow: z.array(z.string()).optional().describe("Optional namespace allowlist."),
-              namespaceDeny: z.array(z.string()).optional().describe("Optional namespace denylist."),
-              symbolAllow: z.array(z.string()).optional().describe("Optional symbol allowlist."),
-              symbolDeny: z.array(z.string()).optional().describe("Optional symbol denylist."),
-              maxHops: z.number().int().positive().optional().describe("Optional maximum event-flow hops."),
-              maxBranches: z.number().int().positive().optional().describe("Optional maximum branches to consider."),
-              terminateOnFirstBlocker: z.boolean().optional().describe("Stop once the first certifiable blocker is found.")
-            }).optional().describe("Optional bounded-event-trace scope controls.")
-          })
-        ]).optional().describe("Optional read-only diagnostic mode used after any required semantic bootstrap completes."),
+        analysis: z.object({
+          kind: z.literal("trace"),
+          sourceSymbol: z.string().trim().min(1).optional().describe("Optional known source symbol. Omit it when ChryPck should resolve an evidence-supported entrypoint from the objective and certified corridor."),
+          targetEffect: z.string().trim().min(1).optional().describe("Optional downstream effect/symbol the trace should try to certify."),
+          options: traceOptionsSchema
+        }).optional().describe("Optional read-only canonical bounded trace. This is the BEFT-derived trace engine; bounded-event-trace is no longer a separate public mode."),
         semantic_bootstrap: semanticBootstrapSchema.optional()
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
@@ -190,10 +121,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     {
       title: "Read Certified Context",
       description: "Read server-certified Context Pack evidence for an existing READY run after any required Semantic Atlas bootstrap and normal plan complete. Omit segment_id for the certified index; provide one server-issued segment_id for one bounded source expansion. Never accepts arbitrary repository paths. Returns the next permitted action; failures return structured code/message data.",
-      inputSchema: z.object({
-        run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."),
-        segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the certified index.")
-      }),
+      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."), segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the certified index.") }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async input => toolBoundary(() => nativeService.context(input))
@@ -215,9 +143,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     {
       title: "Read Governed Result",
       description: "Read the authoritative bounded run state/outcome for an existing run, especially after execution or failure. Returns project profile, semantic orientation when available, propagation/validation evidence, telemetry, terminal state, and other bounded native evidence. Failures return structured code/message data.",
-      inputSchema: z.object({
-        run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan.")
-      }),
+      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan.") }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async input => toolBoundary(() => nativeService.result(input))
@@ -239,10 +165,7 @@ export interface ChryPckServiceRuntime {
 export function createChryPckServiceRuntime(env: NodeJS.ProcessEnv = process.env): ChryPckServiceRuntime {
   const config = loadConfig(env);
   const transport = new GitHubRestTransport(config.githubToken, config.githubApiVersion);
-  const repositoryAdapter = new GitHubRepositoryAdapter(transport, {
-    maxTextFileBytes: config.maxTextFileBytes,
-    maxRepositoryFiles: config.maxRepositoryFiles
-  });
+  const repositoryAdapter = new GitHubRepositoryAdapter(transport, { maxTextFileBytes: config.maxTextFileBytes, maxRepositoryFiles: config.maxRepositoryFiles });
   const projectProfiles = createBuiltinProjectProfileRegistry();
   const nativeService = new NativeMcpService(repositoryAdapter, {
     allowedRepositories: config.allowedRepositories,
@@ -280,16 +203,8 @@ export function getChryPckMcpRuntime(): ChryPckMcpRuntime {
   return runtimeSingleton;
 }
 
-export interface McpAccessHeaders {
-  readonly host: string;
-  readonly origin: string;
-  readonly authorization: string;
-}
-
-export interface McpAccessDenial {
-  readonly status: number;
-  readonly message: string;
-}
+export interface McpAccessHeaders { readonly host: string; readonly origin: string; readonly authorization: string; }
+export interface McpAccessDenial { readonly status: number; readonly message: string; }
 
 function constantTimeTokenMatch(actual: string, expected: string): boolean {
   const actualBytes = Buffer.from(actual);
@@ -301,23 +216,14 @@ export function evaluateMcpAccess(headers: McpAccessHeaders, config: ChryPckConf
   if (config.publicHost) {
     const incoming = headers.host.trim().toLowerCase();
     const hostname = incoming.split(":")[0] ?? incoming;
-    if (incoming !== config.publicHost && hostname !== config.publicHost) {
-      return { status: 403, message: "Host is not allowed." };
-    }
+    if (incoming !== config.publicHost && hostname !== config.publicHost) return { status: 403, message: "Host is not allowed." };
   }
-
   const origin = headers.origin.trim();
-  if (origin && config.allowedOrigins.size > 0 && !config.allowedOrigins.has(origin)) {
-    return { status: 403, message: "Origin is not allowed." };
-  }
-
+  if (origin && config.allowedOrigins.size > 0 && !config.allowedOrigins.has(origin)) return { status: 403, message: "Origin is not allowed." };
   if (config.mcpBearerToken) {
     const expected = `Bearer ${config.mcpBearerToken}`;
-    if (!constantTimeTokenMatch(headers.authorization, expected)) {
-      return { status: 401, message: "Bearer authorization is required." };
-    }
+    if (!constantTimeTokenMatch(headers.authorization, expected)) return { status: 401, message: "Bearer authorization is required." };
   }
-
   return null;
 }
 
@@ -329,6 +235,7 @@ export function buildHealthPayload(runtime: ChryPckServiceRuntime) {
     execution: "native",
     repository_visibility: "structural-atlas-plus-semantic-atlas-plus-diagnostic-projection-plus-certified-context",
     semantic_bootstrap: "host-llm-chunked-required-on-uncached-repository-state",
+    trace_engine: "bounded-evidence-backed-beft-canonical-trace",
     user_handle: userHandle,
     common_repos: commonRepos,
     project_profiles: runtime.projectProfiles.list().map(profile => profile.id)

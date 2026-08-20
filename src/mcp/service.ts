@@ -15,8 +15,7 @@ import { summarizeRunArtifacts } from "../core/run/run-artifacts.js";
 import type { ProjectProfileRegistry } from "../project/registry.js";
 import type { ProjectProfile } from "../project/profile.js";
 import { architectureCorridor, planArchitecture, type ArchitecturePlan } from "../architecture/index.js";
-import { runTrace, type TraceResult } from "../analysis/trace-runner.js";
-import { analyzeBoundedEventTrace } from "../analysis/bounded-event-trace.js";
+import { analyzeTrace, type TraceResult } from "../analysis/trace.js";
 import type { AuthoringIntent } from "../mutation/authoring-compiler.js";
 import { InMemorySemanticAtlasCache, semanticAtlasCacheKey } from "../semantic/cache.js";
 import {
@@ -337,81 +336,11 @@ export class NativeMcpService {
         architecture: null
       });
 
-      const traceResult: TraceResult = runTrace({
-        objective: input.objective.trim(),
-        model,
-        diagnostics: base.diagnostics,
-        max_hops: input.analysis?.max_hops,
-        max_branches: input.analysis?.max_branches
-      });
-
-      const binding = Object.freeze({
-        targetRef,
-        baseCommitSha: snapshot.commitSha,
-        profileId: profile.id,
-        architecturePlan: null,
-        allowedNewPaths: Object.freeze([]),
-        orientation,
-        semanticOrientation
-      });
-      this.#bindings.set(run.runId, binding);
-
-      if (traceResult.status === "capability_gap") {
-        this.orchestrator.transition(run.runId, "CAPABILITY_GAP", "native_plan_gap");
-      } else {
-        this.orchestrator.transition(run.runId, "SUCCEEDED", "native_trace_complete");
-      }
-
-      return Object.freeze({
-        run_id: run.runId,
-        state: run.state,
-        repository: run.repository,
-        project_profile: profile.id,
-        base_ref: targetRef,
-        base_commit_sha: snapshot.commitSha,
-        scope_lock_fingerprint: run.scopeLock.fingerprint,
-        repository_atlas: orientation.atlas,
-        coverage: orientation.coverage,
-        semantic_atlas: semanticOrientation.atlas,
-        semantic_coverage: semanticOrientation.coverage,
-        semantic_bootstrap: Object.freeze({ status: "complete" as const, bootstrap_id: null, current_chunk: null }),
-        corridor: base.corridor ?? null,
-        diagnostics: projectDiagnosticMaps(base.diagnostics, base.corridor),
-        native_contracts: projectNativeContractMaps(base.nativeContracts, base.corridor),
-        architecture_plan: null,
-        architecture_requires_review: false,
-        context_available: false,
-        context_segment_count: 0,
-        context_index: Object.freeze([]),
-        analysis: Object.freeze({
-          kind: "trace",
-          status: traceResult.status,
-          terminal_reason: traceResult.terminal_reason,
-          root_cause: traceResult.root_cause,
-          trace: traceResult.trace,
-          considered_branches: traceResult.considered_branches,
-          unresolved_questions: traceResult.unresolved_questions,
-          likely_patch_candidates: traceResult.likely_patch_candidates
-        }),
-        permitted_next_action: "create_normal_plan_from_trace_root_cause"
-      });
-    }
-
-    if (input.analysis?.kind === "bounded-event-trace") {
-      this.orchestrator.recordArtifact(run.runId, "planning", base, {
-        projectProfile: profile.id,
-        corridorCertified: base.corridor.certified,
-        contextSegments: base.context?.segments.length ?? 0,
-        diagnostics: base.diagnostics.length,
-        nativeContracts: base.nativeContracts.length,
-        semanticRegions: semanticOrientation.atlas.region_count,
-        architecture: null
-      });
-
-      const beft = await analyzeBoundedEventTrace({
+      const traceResult: TraceResult = analyzeTrace({
         requestId: run.runId,
         repository,
         commitSha: snapshot.commitSha,
+        objective: input.objective.trim(),
         sourceSymbol: input.analysis.sourceSymbol,
         targetEffect: input.analysis.targetEffect,
         options: input.analysis.options
@@ -428,7 +357,7 @@ export class NativeMcpService {
       });
       this.#bindings.set(run.runId, binding);
 
-      if (beft.status === "UNABLE_TO_CERTIFY") {
+      if (traceResult.status === "UNABLE_TO_CERTIFY") {
         this.orchestrator.transition(run.runId, "CAPABILITY_GAP", "native_plan_gap");
       } else {
         this.orchestrator.transition(run.runId, "SUCCEEDED", "native_trace_complete");
@@ -455,8 +384,8 @@ export class NativeMcpService {
         context_available: false,
         context_segment_count: 0,
         context_index: Object.freeze([]),
-        analysis: Object.freeze({ kind: "bounded-event-trace", result: beft }),
-        permitted_next_action: "create_normal_plan_from_trace_root_cause"
+        analysis: Object.freeze({ kind: "trace" as const, result: traceResult }),
+        permitted_next_action: "create_normal_plan_from_trace_evidence"
       });
     }
 
