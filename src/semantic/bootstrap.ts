@@ -280,9 +280,19 @@ export class SemanticBootstrapCoordinator {
     return Object.freeze({ bootstrapId: id, currentChunk, chunkCount: session.chunks.length });
   }
 
-  advance(input: SemanticBootstrapSubmissionInput): SemanticBootstrapAdvance {
+  advance(
+    input: SemanticBootstrapSubmissionInput,
+    expected: { readonly repository: string; readonly commitSha: string; readonly projectProfile: string }
+  ): SemanticBootstrapAdvance {
     const session = this.#sessions.get(input.bootstrap_id);
     if (!session) throw new Error(`Unknown or expired semantic bootstrap: ${input.bootstrap_id}`);
+    if (
+      session.repository !== expected.repository ||
+      session.commitSha !== expected.commitSha ||
+      session.projectProfile !== expected.projectProfile
+    ) {
+      throw new Error("Semantic bootstrap submission does not match the current repository, immutable commit, or project profile.");
+    }
     const currentChunk = session.chunks[session.nextChunkIndex];
     if (!currentChunk || currentChunk.chunk_id !== input.chunk_id) {
       throw new Error("Semantic bootstrap submission does not match the current server-issued chunk.");
