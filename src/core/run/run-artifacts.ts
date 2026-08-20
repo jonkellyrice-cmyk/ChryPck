@@ -1,3 +1,4 @@
+import type { TraceResult } from "../../analysis/trace.js";
 import type { NativePlanningResult } from "../../planning/planning-runner.js";
 import type { ChangePropagationReport } from "../../planning/change-propagation.js";
 import type { MutationTransaction } from "../../mutation/transaction.js";
@@ -6,6 +7,7 @@ import type { NativeFailureEvidence } from "./failure-evidence.js";
 
 export interface NativeRunArtifacts {
   planning: NativePlanningResult | null;
+  trace: TraceResult | null;
   mutation: MutationTransaction | null;
   propagation: ChangePropagationReport | null;
   validation: NativeValidationReport | null;
@@ -15,6 +17,7 @@ export interface NativeRunArtifacts {
 export function createNativeRunArtifacts(): NativeRunArtifacts {
   return {
     planning: null,
+    trace: null,
     mutation: null,
     propagation: null,
     validation: null,
@@ -26,6 +29,9 @@ export function summarizeRunArtifacts(artifacts: NativeRunArtifacts): Readonly<R
   return Object.freeze({
     corridorCertified: artifacts.planning?.corridor.certified ?? null,
     contextSegments: artifacts.planning?.context?.segments.length ?? null,
+    traceStatus: artifacts.trace?.status ?? null,
+    traceCertificateId: artifacts.trace?.certificate?.certificateId ?? null,
+    tracePathLength: artifacts.trace?.path.length ?? null,
     mutationState: artifacts.mutation?.state ?? null,
     changedPaths: artifacts.mutation?.staged.changedPaths ?? [],
     propagationCertified: artifacts.propagation?.certified ?? null,
