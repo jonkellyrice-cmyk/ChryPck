@@ -1,5 +1,5 @@
 import type { RepositoryModel } from "../../repository/model.js";
-import { runNativePlanning, type NativePlanningResult } from "../../planning/planning-runner.js";
+import { runNativePlanning, type NativePlanningExtensions, type NativePlanningResult } from "../../planning/planning-runner.js";
 import { assessPropagation, type ChangePropagationReport } from "../../planning/change-propagation.js";
 import { prepareNativeMutation } from "../../mutation/mutation-runner.js";
 import { commitMutationTransaction, validateMutationTransaction, type MutationCommitter, type MutationTransaction } from "../../mutation/transaction.js";
@@ -25,6 +25,7 @@ export interface NativeExecutionRequest {
   readonly commandPlan: ValidationCommandPlan;
   readonly sandboxRunner: SandboxRunner;
   readonly committer: MutationCommitter;
+  readonly planningExtensions?: NativePlanningExtensions;
 }
 
 export interface NativeExecutionResult {
@@ -68,7 +69,7 @@ export async function executeNativeRun(orchestrator: NativeOrchestrator, request
   orchestrator.transition(request.runId, "EXECUTING", "native_execution_started");
   let planning: NativePlanningResult;
   try {
-    planning = runNativePlanning({ objective: run.envelope.intent.goal!, model: request.model });
+    planning = runNativePlanning({ objective: run.envelope.intent.goal!, model: request.model, extensions: request.planningExtensions });
     orchestrator.recordArtifact(request.runId, "planning", planning, { corridorCertified: planning.corridor.certified, diagnostics: planning.diagnostics.length, contextSegments: planning.context?.segments.length ?? 0 });
     if (!planning.corridor.certified || !planning.context) return fail(orchestrator, request.runId, "planning", new Error(planning.corridor.gaps.join("; ") || "Patch Corridor did not certify."), planning.corridor.gaps);
   } catch (error) {
@@ -84,14 +85,22 @@ export async function executeNativeRun(orchestrator: NativeOrchestrator, request
     return fail(orchestrator, request.runId, "mutation", error);
   }
 
-  const propagation = assessPropagation(transaction.staged.changes, request.model, planning.corridor);
+  const planningModel = Object.freeze({ ...request.model, contractMap: planning.contractMap });
+  const propagation = assessPropagation(transaction.staged.changes, planningModel, planning.corridor);
   orchestrator.recordArtifact(request.runId, "propagation", propagation, { certified: propagation.certified, outsideCorridorConsumers: propagation.outsideCorridorConsumers, contractDeltas: propagation.contractDeltas.length });
   if (!propagation.certified) return fail(orchestrator, request.runId, "propagation", new Error(propagation.gaps.join("; ") || "Change propagation did not certify."), propagation.gaps);
 
   orchestrator.transition(request.runId, "VALIDATING", "native_validation_started");
   let validation: NativeValidationReport;
   try {
-    validation = await runNativeValidation({ structuralContext: { changes: transaction.staged.changes }, structuralValidators: request.structuralValidators, commandPlan: request.commandPlan, workspace: workspaceFor(transaction), sandboxRunner: request.sandboxRunner });
+    validation = await runNativeValidation({
+      structuralContext: { changes: transaction.staged.changes },
+      structuralValidators: request.structuralValidators,
+      commandPlan: request.commandPlan,
+      workspace: workspaceFor(transaction),
+      sandboxRunner: request.sandboxRunner,
+      contractContext: { contractMap: planning.contractMap, propagation }
+    });
     orchestrator.recordArtifact(request.runId, "validation", validation, { passed: validation.passed, fingerprint: validation.fingerprint, commandCount: validation.commands.length, findingCount: validation.findings.length });
     transaction = await validateMutationTransaction(transaction, [{ name: "native-validation", validate: () => ({ validator: "native-validation", passed: validation.passed, summary: validation.passed ? "Native validation passed." : "Native validation failed.", details: { validationFingerprint: validation.fingerprint } }) }]);
     orchestrator.recordArtifact(request.runId, "mutation", transaction, { mutationState: transaction.state });

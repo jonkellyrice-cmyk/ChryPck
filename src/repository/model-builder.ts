@@ -3,6 +3,7 @@ import { resolveImportPath } from "./path-resolution.js";
 import { createRepositorySourceProfile, isProfileSourcePath, type RepositorySourceProfile } from "./source-profile.js";
 import { parseSourceFile } from "./source-parser.js";
 import type { RepositorySnapshot } from "./snapshot.js";
+import { linkContractMap } from "./contract-linker.js";
 
 export interface RepositoryModelBuildOptions {
   readonly profile?: RepositorySourceProfile;
@@ -34,6 +35,7 @@ export function buildRepositoryModel(snapshot: RepositorySnapshot, options: Repo
   const states = fileFacts.flatMap(facts => facts.states).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || `${a.namespace}.${a.key}`.localeCompare(`${b.namespace}.${b.key}`));
   dependencies.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to) || a.kind.localeCompare(b.kind));
   unresolvedDependencies.sort((a, b) => a.file.localeCompare(b.file) || a.specifier.localeCompare(b.specifier) || a.kind.localeCompare(b.kind));
+  const contractMap = linkContractMap(fileFacts, dependencies, unresolvedDependencies, states);
 
   return Object.freeze({
     snapshot,
@@ -42,6 +44,7 @@ export function buildRepositoryModel(snapshot: RepositorySnapshot, options: Repo
     unresolvedDependencies: Object.freeze(unresolvedDependencies),
     symbols: Object.freeze(symbols),
     effects: Object.freeze(effects),
-    states: Object.freeze(states)
+    states: Object.freeze(states),
+    contractMap
   });
 }

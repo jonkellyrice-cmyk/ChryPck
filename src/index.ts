@@ -22,6 +22,7 @@ export * from "./mutation/authoring-compiler.js";
 export * from "./mutation/patch-dsl.js";
 export * from "./mutation/file-patcher.js";
 export * from "./validation/validator.js";
+export * from "./validation/contract-validator.js";
 export * from "./project/profile.js";
 export * from "./project/registry.js";
 export * from "./mcp/tools.js";

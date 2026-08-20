@@ -1,5 +1,6 @@
 import type { DependencyKind, DependencyReference, EffectRecord, FileFacts, StateRecord, SymbolRecord } from "./model.js";
 import { repositoryExtension } from "./source-profile.js";
+import { extractContractFileFacts } from "./contract-extractor.js";
 
 function lineNumber(text: string, index: number): number {
   let line = 1;
@@ -162,6 +163,7 @@ export function parseSourceFile(file: string, text: string): FileFacts {
     dependencies: Object.freeze(extractDependencies(file, text)),
     symbols: Object.freeze(symbols),
     effects: Object.freeze(extractEffects(file, text, symbols)),
-    states: Object.freeze(extractStates(file, text))
+    states: Object.freeze(extractStates(file, text)),
+    contractSites: extractContractFileFacts(file, text)
   });
 }

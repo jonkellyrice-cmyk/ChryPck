@@ -35,7 +35,10 @@ export function summarizeRunArtifacts(artifacts: NativeRunArtifacts): Readonly<R
     mutationState: artifacts.mutation?.state ?? null,
     changedPaths: artifacts.mutation?.staged.changedPaths ?? [],
     propagationCertified: artifacts.propagation?.certified ?? null,
+    impactedContractCount: artifacts.propagation?.impactedContractIds.length ?? null,
+    contractVerificationTargetCount: artifacts.propagation?.contractConsumers.length ?? null,
     validationPassed: artifacts.validation?.passed ?? null,
+    contractValidationPassed: artifacts.validation?.contract.passed ?? null,
     failureStage: artifacts.failure?.failed_stage ?? null
   });
 }

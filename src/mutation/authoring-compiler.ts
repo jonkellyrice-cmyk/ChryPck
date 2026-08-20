@@ -29,12 +29,15 @@ function existingContent(context: CorridorContextPack): ReadonlyMap<string, stri
   return new Map(context.segments.map(segment => [segment.path, segment.content] as const));
 }
 
+function existingHashes(context: CorridorContextPack): ReadonlyMap<string, string> {
+  return new Map(context.segments.map(segment => [segment.path, segment.sourceSha256 || sha256Text(segment.content)] as const));
+}
+
 function normalizeNewPaths(values: readonly string[] | undefined): ReadonlySet<string> {
   return new Set((values ?? []).map(normalizePatchPath).filter(Boolean));
 }
 
-function guardedExistingOperation(edit: Exclude<AuthoringEdit, { type: "create_file" }>, content: string): PatchOperation {
-  const expectedSha256 = sha256Text(content);
+function guardedExistingOperation(edit: Exclude<AuthoringEdit, { type: "create_file" }>, expectedSha256: string): PatchOperation {
   switch (edit.type) {
     case "replace_file": return { ...edit, path: normalizePatchPath(edit.path), expectedSha256 };
     case "replace_exact": return { ...edit, path: normalizePatchPath(edit.path), expectedSha256 };
@@ -52,6 +55,7 @@ export function compileAuthoringIntent(intent: AuthoringIntent, authority: Autho
   }
   if (authority.context.commitSha.trim() === "") throw new Error("Authoring context is missing its immutable base commit.");
   const existing = existingContent(authority.context);
+  const hashes = existingHashes(authority.context);
   const grantedExisting = new Set(authority.context.grantedPaths.map(normalizePatchPath));
   const allowedNew = normalizeNewPaths(authority.allowedNewPaths);
   const operations: PatchOperation[] = [];
@@ -70,17 +74,19 @@ export function compileAuthoringIntent(intent: AuthoringIntent, authority: Autho
     if (edit.type === "move_file") {
       const from = normalizePatchPath(edit.from), to = normalizePatchPath(edit.to);
       const content = existing.get(from);
-      if (!from || !to || !grantedExisting.has(from) || content === undefined) throw new Error(`Move source is not granted by Context Pack: ${edit.from}`);
+      const expectedSha256 = hashes.get(from);
+      if (!from || !to || !grantedExisting.has(from) || content === undefined || !expectedSha256) throw new Error(`Move source is not granted by Context Pack: ${edit.from}`);
       if (!allowedNew.has(to)) throw new Error(`Move destination is not explicitly authorized: ${edit.to}`);
-      operations.push(guardedExistingOperation({ ...edit, from, to }, content));
+      operations.push(guardedExistingOperation({ ...edit, from, to }, expectedSha256));
       touched.add(from); touched.add(to);
       continue;
     }
 
     const path = normalizePatchPath(edit.path);
     const content = existing.get(path);
-    if (!path || !grantedExisting.has(path) || content === undefined) throw new Error(`Edit path is not granted by Context Pack: ${edit.path}`);
-    operations.push(guardedExistingOperation({ ...edit, path } as Exclude<AuthoringEdit, { type: "create_file" }>, content));
+    const expectedSha256 = hashes.get(path);
+    if (!path || !grantedExisting.has(path) || content === undefined || !expectedSha256) throw new Error(`Edit path is not granted by Context Pack: ${edit.path}`);
+    operations.push(guardedExistingOperation({ ...edit, path } as Exclude<AuthoringEdit, { type: "create_file" }>, expectedSha256));
     touched.add(path);
   }
 

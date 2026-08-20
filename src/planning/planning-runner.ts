@@ -7,6 +7,8 @@ import { planPatchCorridor, type PatchCorridor } from "./patch-corridor.js";
 import { planPatchStages, type PatchStagingPlan } from "./patch-staging.js";
 import { planRuntimeProbes, type RuntimeProbePlan } from "./runtime-probes.js";
 import type { CertifiedTracePlanningEvidence } from "./trace-handoff.js";
+import type { ContractMap } from "../repository/contract-types.js";
+import { reconcileContractMap } from "../analysis/contract-reconciliation.js";
 
 export interface NativeContractRecord {
   readonly id: string;
@@ -38,6 +40,7 @@ export interface NativePlanningResult {
   readonly runtimeProbes: RuntimeProbePlan;
   readonly nativeContracts: readonly NativeContractRecord[];
   readonly traceEvidence: CertifiedTracePlanningEvidence | null;
+  readonly contractMap: ContractMap;
 }
 
 function analyzersFor(extensions: NativePlanningExtensions | undefined): readonly Analyzer[] {
@@ -47,16 +50,20 @@ function analyzersFor(extensions: NativePlanningExtensions | undefined): readonl
 }
 
 export function runNativePlanning(request: NativePlanningRequest): NativePlanningResult {
-  const diagnostics = runNativeDiagnostics(request.model, analyzersFor(request.extensions));
+  const nativeContracts = Object.freeze([...(request.extensions?.nativeContractProvider?.(request.model) ?? [])]);
+  const contractMap = reconcileContractMap(request.model.contractMap, nativeContracts);
+  const diagnosticModel = Object.freeze({ ...request.model, contractMap });
+  const diagnostics = runNativeDiagnostics(diagnosticModel, analyzersFor(request.extensions));
   const corridor = planPatchCorridor(request.objective, request.model, {
     diagnostics,
-    traceEvidence: request.traceEvidence
+    traceEvidence: request.traceEvidence,
+    contractMap
   });
-  const context = corridor.certified ? buildContextPack(corridor, request.model) : null;
+  const planningModel = Object.freeze({ ...request.model, contractMap });
+  const context = corridor.certified ? buildContextPack(corridor, planningModel) : null;
   const staging = corridor.certified ? planPatchStages(corridor, request.model, request.maxFilesPerStage ?? 1) : null;
-  const propagation = request.proposedChanges ? assessPropagation(request.proposedChanges, request.model, corridor) : null;
+  const propagation = request.proposedChanges ? assessPropagation(request.proposedChanges, planningModel, corridor) : null;
   const runtimeProbes = request.extensions?.runtimeProbePlanner?.(corridor, request.model) ?? planRuntimeProbes(corridor, request.model);
-  const nativeContracts = Object.freeze([...(request.extensions?.nativeContractProvider?.(request.model) ?? [])]);
   return Object.freeze({
     diagnostics,
     corridor,
@@ -65,6 +72,7 @@ export function runNativePlanning(request: NativePlanningRequest): NativePlannin
     propagation,
     runtimeProbes,
     nativeContracts,
-    traceEvidence: request.traceEvidence ?? null
+    traceEvidence: request.traceEvidence ?? null,
+    contractMap
   });
 }
