@@ -48,6 +48,8 @@ test("governed connector manifest publishes aliases, diagnostics, and the staged
     ["trace", "bounded-event-trace"],
   );
   for (const diagnosticId of [
+    "repository-atlas",
+    "coverage-ledger",
     "dependency-graph",
     "dependency-watershed",
     "symbol-families",
@@ -81,6 +83,8 @@ test("governed connector manifest publishes aliases, diagnostics, and the staged
   );
   assert.match(manifest.workflow.patchStrategy, /one coherent cross-cutting patch/i);
   assert.match(manifest.workflow.failurePolicy, /do not claim ChryPck is unavailable/i);
+  assert.match(manifest.workflow.phases[0]?.guidance ?? "", /repository_atlas/i);
+  assert.match(manifest.capabilities[0]?.returns ?? "", /coverage ledger/i);
 });
 
 test("governed connector manifest keeps writes explicit and reads automatic", () => {
