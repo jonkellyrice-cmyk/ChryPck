@@ -181,25 +181,46 @@ function collapseDirectory(node: MutableDirectoryNode): MutableDirectoryNode {
   return current;
 }
 
+function canonicalNode(node: MutableAtlasNode): MutableAtlasNode {
+  return node.kind === "directory" ? collapseDirectory(node) : node;
+}
+
 function nodeSort(left: MutableAtlasNode, right: MutableAtlasNode): number {
-  if (left.kind !== right.kind) return left.kind === "directory" ? -1 : 1;
-  if (left.kind === "file" && right.kind === "file") {
+  const canonicalLeft = canonicalNode(left);
+  const canonicalRight = canonicalNode(right);
+  if (canonicalLeft.kind !== canonicalRight.kind) return canonicalLeft.kind === "directory" ? -1 : 1;
+  if (canonicalLeft.kind === "file" && canonicalRight.kind === "file") {
     const rank: Record<RepositoryFileKind, number> = { manifest: 0, source: 1, unknown: 2, asset: 3 };
-    const difference = rank[fileKind(left.file)] - rank[fileKind(right.file)];
+    const difference = rank[fileKind(canonicalLeft.file)] - rank[fileKind(canonicalRight.file)];
     if (difference !== 0) return difference;
   }
-  return left.path.localeCompare(right.path);
+  return canonicalLeft.path.localeCompare(canonicalRight.path);
 }
 
 function fullNodeCount(node: MutableAtlasNode, memo: WeakMap<object, number>): number {
-  if (node.kind === "file") return 1;
-  const collapsed = collapseDirectory(node);
-  const cached = memo.get(collapsed);
+  const canonical = canonicalNode(node);
+  if (canonical.kind === "file") return 1;
+  const cached = memo.get(canonical);
   if (cached !== undefined) return cached;
   let count = 1;
-  for (const child of collapsed.children.values()) count += fullNodeCount(child, memo);
-  memo.set(collapsed, count);
+  for (const child of canonical.children.values()) count += fullNodeCount(child, memo);
+  memo.set(canonical, count);
   return count;
+}
+
+function selectBreadthFirst(root: MutableDirectoryNode, maxNodes: number): ReadonlySet<MutableAtlasNode> {
+  const selected = new Set<MutableAtlasNode>();
+  const queue = [...root.children.values()].sort(nodeSort);
+  let cursor = 0;
+  while (cursor < queue.length && selected.size < maxNodes) {
+    const raw = queue[cursor++];
+    if (!raw) continue;
+    const node = canonicalNode(raw);
+    if (selected.has(node)) continue;
+    selected.add(node);
+    if (node.kind === "directory") queue.push(...[...node.children.values()].sort(nodeSort));
+  }
+  return selected;
 }
 
 interface ProjectionResult {
@@ -207,14 +228,13 @@ interface ProjectionResult {
   readonly returnedNodes: number;
 }
 
-function projectNode(
-  node: MutableAtlasNode,
-  remaining: { value: number },
+function projectSelectedNode(
+  rawNode: MutableAtlasNode,
+  selected: ReadonlySet<MutableAtlasNode>,
   countMemo: WeakMap<object, number>
 ): ProjectionResult | null {
-  if (remaining.value <= 0) return null;
-  remaining.value -= 1;
-
+  const node = canonicalNode(rawNode);
+  if (!selected.has(node)) return null;
   if (node.kind === "file") {
     return {
       node: Object.freeze({
@@ -228,28 +248,26 @@ function projectNode(
     };
   }
 
-  const collapsed = collapseDirectory(node);
-  const children = [...collapsed.children.values()].sort(nodeSort);
   const projectedChildren: RepositoryAtlasNode[] = [];
   let returnedNodes = 1;
-  for (const child of children) {
-    const projected = projectNode(child, remaining, countMemo);
-    if (!projected) break;
+  for (const child of [...node.children.values()].sort(nodeSort)) {
+    const projected = projectSelectedNode(child, selected, countMemo);
+    if (!projected) continue;
     projectedChildren.push(projected.node);
     returnedNodes += projected.returnedNodes;
   }
-  const totalNodes = fullNodeCount(collapsed, countMemo);
+  const totalNodes = fullNodeCount(node, countMemo);
   const omittedNodes = Math.max(0, totalNodes - returnedNodes);
   return {
     node: Object.freeze({
       kind: "directory",
-      path: collapsed.path,
-      file_count: collapsed.stats.files,
-      modeled_file_count: collapsed.stats.modeled,
-      source_file_count: collapsed.stats.source,
-      manifest_file_count: collapsed.stats.manifest,
-      asset_file_count: collapsed.stats.asset,
-      unknown_file_count: collapsed.stats.unknown,
+      path: node.path,
+      file_count: node.stats.files,
+      modeled_file_count: node.stats.modeled,
+      source_file_count: node.stats.source,
+      manifest_file_count: node.stats.manifest,
+      asset_file_count: node.stats.asset,
+      unknown_file_count: node.stats.unknown,
       children: Object.freeze(projectedChildren),
       truncated: omittedNodes > 0,
       omitted_node_count: omittedNodes
@@ -274,14 +292,14 @@ export function buildRepositoryOrientation(
   calculateStats(root);
 
   const maxNodes = positiveNodeLimit(options.maxAtlasNodes);
-  const memo = new WeakMap<object, number>();
-  const totalNodeCount = [...root.children.values()].reduce((sum, child) => sum + fullNodeCount(child, memo), 0);
-  const remaining = { value: maxNodes };
+  const countMemo = new WeakMap<object, number>();
+  const totalNodeCount = [...root.children.values()].reduce((sum, child) => sum + fullNodeCount(child, countMemo), 0);
+  const selected = selectBreadthFirst(root, maxNodes);
   const entries: RepositoryAtlasNode[] = [];
   let returnedNodeCount = 0;
   for (const child of [...root.children.values()].sort(nodeSort)) {
-    const projected = projectNode(child, remaining, memo);
-    if (!projected) break;
+    const projected = projectSelectedNode(child, selected, countMemo);
+    if (!projected) continue;
     entries.push(projected.node);
     returnedNodeCount += projected.returnedNodes;
   }
