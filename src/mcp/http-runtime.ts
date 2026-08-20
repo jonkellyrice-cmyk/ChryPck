@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { loadConfig, type ChryPckConfig } from "../config.js";
-import { userHandle, commonRepos } from "./user-identity.js";
+import { userHandle, commonRepos, resolveRepositorySlug } from "./user-identity.js";
 import { GitHubRestTransport, GitHubTransportError } from "../adapters/github/client.js";
 import { GitHubRepositoryAdapter } from "../adapters/github/repository-adapter.js";
 import { PolicyError } from "../core/policy/errors.js";
@@ -131,7 +131,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
       title: "Plan Governed Change",
       description: "Start governed repository work. Use first for repository inspection or change. Returns run_id, bounded diagnostics/certified corridor, context availability, architecture-review state, and permitted_next_action. Failures return a structured code and message.",
       inputSchema: z.object({
-        repository: z.string().min(3).describe("GitHub repository in owner/name form."),
+        repository: z.string().min(1).describe("Repository slug. For the configured ChryPck owner, prefer the bare repository name (for example LEMONade_ORC); owner/name and GitHub URLs remain accepted when needed."),
         objective: z.string().trim().min(1).describe("Exact user-authorized repository outcome to investigate or implement."),
         base_ref: z.string().trim().min(1).optional().describe("Existing branch/ref to inspect; server policy supplies the default when omitted."),
         architecture: architectureSchema.optional().describe("Optional read-only structural planning request. Move/decompose plans require later explicit execution/approval."),
@@ -161,7 +161,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
-    async input => toolBoundary(() => nativeService.plan(input))
+    async input => toolBoundary(() => nativeService.plan({ ...input, repository: resolveRepositorySlug(input.repository) }))
   );
 
   server.registerTool(
