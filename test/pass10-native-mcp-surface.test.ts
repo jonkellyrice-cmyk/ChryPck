@@ -141,6 +141,11 @@ test("live native service exposes semantic orientation then bounded plan/context
   assert.equal(expandedContext.segments.length, 1);
   assert.match(String(expandedContext.segments[0]?.content ?? ""), /provider/);
 
+  const authoritativeReadyResult: any = service.result({ run_id: plan.run_id, response_mode: "compact" });
+  assert.equal(authoritativeReadyResult.context_available, true);
+  assert.equal(authoritativeReadyResult.context_grants[0].segment_id, segmentId);
+  assert.equal(authoritativeReadyResult.permitted_next_action, "chrypck_context");
+
   const result = await service.execute({ run_id: plan.run_id, authoring_intent: { id: "provider-edit", objective: "provider", edits: [{ type: "replace_exact", path: "src/provider.ts", search: "return 1", replace: "return 2" }] } });
   assert.equal(result.state, "SUCCEEDED");
   assert.equal(result.result_commit_sha, "b".repeat(40));
