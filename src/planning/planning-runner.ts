@@ -9,6 +9,7 @@ import { planRuntimeProbes, type RuntimeProbePlan } from "./runtime-probes.js";
 import type { CertifiedTracePlanningEvidence } from "./trace-handoff.js";
 import type { ContractMap } from "../repository/contract-types.js";
 import { reconcileContractMap } from "../analysis/contract-reconciliation.js";
+import { buildEffectRuntimeAtlas, type EffectRuntimeAtlas } from "../analysis/effect-runtime-linker.js";
 
 export interface NativeContractRecord {
   readonly id: string;
@@ -41,6 +42,7 @@ export interface NativePlanningResult {
   readonly nativeContracts: readonly NativeContractRecord[];
   readonly traceEvidence: CertifiedTracePlanningEvidence | null;
   readonly contractMap: ContractMap;
+  readonly effectRuntimeAtlas: EffectRuntimeAtlas;
 }
 
 function analyzersFor(extensions: NativePlanningExtensions | undefined): readonly Analyzer[] {
@@ -53,17 +55,19 @@ export function runNativePlanning(request: NativePlanningRequest): NativePlannin
   const nativeContracts = Object.freeze([...(request.extensions?.nativeContractProvider?.(request.model) ?? [])]);
   const contractMap = reconcileContractMap(request.model.contractMap, nativeContracts);
   const diagnosticModel = Object.freeze({ ...request.model, contractMap });
+  const effectRuntimeAtlas = buildEffectRuntimeAtlas(diagnosticModel);
   const diagnostics = runNativeDiagnostics(diagnosticModel, analyzersFor(request.extensions));
   const corridor = planPatchCorridor(request.objective, request.model, {
     diagnostics,
     traceEvidence: request.traceEvidence,
-    contractMap
+    contractMap,
+    effectRuntimeAtlas
   });
   const planningModel = Object.freeze({ ...request.model, contractMap });
-  const context = corridor.certified ? buildContextPack(corridor, planningModel) : null;
+  const context = corridor.certified ? buildContextPack(corridor, planningModel, 24, effectRuntimeAtlas) : null;
   const staging = corridor.certified ? planPatchStages(corridor, request.model, request.maxFilesPerStage ?? 1) : null;
-  const propagation = request.proposedChanges ? assessPropagation(request.proposedChanges, planningModel, corridor) : null;
-  const runtimeProbes = request.extensions?.runtimeProbePlanner?.(corridor, request.model) ?? planRuntimeProbes(corridor, request.model);
+  const propagation = request.proposedChanges ? assessPropagation(request.proposedChanges, planningModel, corridor, effectRuntimeAtlas) : null;
+  const runtimeProbes = request.extensions?.runtimeProbePlanner?.(corridor, request.model) ?? planRuntimeProbes(corridor, request.model, effectRuntimeAtlas);
   return Object.freeze({
     diagnostics,
     corridor,
@@ -73,6 +77,7 @@ export function runNativePlanning(request: NativePlanningRequest): NativePlannin
     runtimeProbes,
     nativeContracts,
     traceEvidence: request.traceEvidence ?? null,
-    contractMap
+    contractMap,
+    effectRuntimeAtlas
   });
 }

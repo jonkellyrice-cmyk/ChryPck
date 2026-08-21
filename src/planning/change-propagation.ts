@@ -1,6 +1,7 @@
 import type { RepositoryModel } from "../repository/model.js";
 import type { PatchCorridor } from "./patch-corridor.js";
 import type { ContractMap, ContractRecord } from "../repository/contract-types.js";
+import { buildEffectRuntimeAtlas, type EffectRuntimeAtlas } from "../analysis/effect-runtime-linker.js";
 
 export interface ProposedChange { readonly path: string; readonly before: string | null; readonly after: string | null; }
 
@@ -22,6 +23,12 @@ export interface ChangePropagationReport {
   readonly impactedContractIds: readonly string[];
   readonly contractConsumers: readonly string[];
   readonly nativeConflictIds: readonly string[];
+  readonly impactedRuntimeRegionIds: readonly string[];
+  readonly runtimeEffectSinks: readonly string[];
+  readonly runtimeObservationTargets: readonly string[];
+  readonly outsideCorridorRuntimeTargets: readonly string[];
+  readonly nativeConflictRuntimeRegionIds: readonly string[];
+  readonly unresolvedRuntimeRegionIds: readonly string[];
   readonly gaps: readonly string[];
 }
 
@@ -74,7 +81,7 @@ function transitiveConsumers(model: RepositoryModel, roots: ReadonlySet<string>)
   return [...seen].sort();
 }
 
-export function assessPropagation(changes: readonly ProposedChange[], model: RepositoryModel, corridor?: PatchCorridor): ChangePropagationReport {
+export function assessPropagation(changes: readonly ProposedChange[], model: RepositoryModel, corridor?: PatchCorridor, effectRuntimeAtlas: EffectRuntimeAtlas = buildEffectRuntimeAtlas(model)): ChangePropagationReport {
   const changed = new Set(changes.map(change => change.path));
   const immediate = [...new Set(model.dependencies.filter(edge => changed.has(edge.to) && !changed.has(edge.from)).map(edge => edge.from))].sort();
   const transitive = transitiveConsumers(model, changed);
@@ -84,10 +91,20 @@ export function assessPropagation(changes: readonly ProposedChange[], model: Rep
   const contracts = impactedContracts(changed, model.contractMap);
   const contractConsumers = [...new Set(contracts.flatMap(contract => contract.consumers.map(endpoint => endpoint.file)).filter(path => !changed.has(path)))].sort();
   const nativeConflicts = contracts.filter(contract => contract.reconciliation === "native-conflict");
+  const impactedRuntimeRegions = effectRuntimeAtlas.regions.filter(region => region.files.some(path => changed.has(path)));
+  const impactedRuntimeNodeIds = new Set(impactedRuntimeRegions.flatMap(region => region.nodeIds));
+  const runtimeEffectSinks = [...new Set(effectRuntimeAtlas.nodes.filter(node => impactedRuntimeNodeIds.has(node.id) && (node.kind === "effect-sink" || node.kind === "integration-boundary")).map(node => node.file))].sort();
+  const runtimeObservationTargets = [...new Set(effectRuntimeAtlas.nodes.filter(node => impactedRuntimeNodeIds.has(node.id) && node.kind === "observation-point").map(node => node.file))].sort();
+  const runtimeTargets = [...new Set(impactedRuntimeRegions.flatMap(region => region.files).filter(path => !changed.has(path)))].sort();
+  const outsideRuntimeTargets = corridor ? runtimeTargets.filter(path => !corridorPaths.has(path)) : [];
+  const nativeConflictRuntimeRegions = impactedRuntimeRegions.filter(region => region.reconciliation === "native-conflict");
+  const unresolvedRuntimeRegions = impactedRuntimeRegions.filter(region => region.reconciliation === "unresolved");
   const breaking = deltas.some(delta => delta.breaking);
   const gaps: string[] = [];
   if (breaking && outside.length > 0) gaps.push("Breaking exported-contract changes reach consumers outside the certified corridor.");
   if (nativeConflicts.length > 0) gaps.push(`Changed paths intersect unresolved native Contract Map conflicts: ${nativeConflicts.map(contract => contract.id).sort().join(", ")}`);
+  if (nativeConflictRuntimeRegions.length > 0) gaps.push(`Changed paths intersect native-conflict Effect / Runtime Atlas regions: ${nativeConflictRuntimeRegions.map(region => region.id).sort().join(", ")}`);
+  if (unresolvedRuntimeRegions.length > 0) gaps.push(`Changed paths require unresolved Effect / Runtime Atlas links: ${unresolvedRuntimeRegions.map(region => region.id).sort().join(", ")}`);
   if (breaking) {
     const unboundedContractConsumers = contractConsumers.filter(path => corridor && !corridorPaths.has(path));
     if (unboundedContractConsumers.length > 0) gaps.push("Breaking exported-contract changes reach Contract Map consumers outside the certified corridor.");
@@ -100,10 +117,16 @@ export function assessPropagation(changes: readonly ProposedChange[], model: Rep
     transitiveConsumers: Object.freeze(transitive),
     outsideCorridorConsumers: Object.freeze(outside),
     contractDeltas: Object.freeze(deltas),
-    verificationTargets: Object.freeze([...new Set([...changed, ...transitive, ...contractConsumers])].sort()),
+    verificationTargets: Object.freeze([...new Set([...changed, ...transitive, ...contractConsumers, ...runtimeEffectSinks, ...runtimeObservationTargets, ...runtimeTargets])].sort()),
     impactedContractIds: Object.freeze(contracts.map(contract => contract.id).sort()),
     contractConsumers: Object.freeze(contractConsumers),
     nativeConflictIds: Object.freeze(nativeConflicts.map(contract => contract.id).sort()),
+    impactedRuntimeRegionIds: Object.freeze(impactedRuntimeRegions.map(region => region.id).sort()),
+    runtimeEffectSinks: Object.freeze(runtimeEffectSinks),
+    runtimeObservationTargets: Object.freeze(runtimeObservationTargets),
+    outsideCorridorRuntimeTargets: Object.freeze(outsideRuntimeTargets),
+    nativeConflictRuntimeRegionIds: Object.freeze(nativeConflictRuntimeRegions.map(region => region.id).sort()),
+    unresolvedRuntimeRegionIds: Object.freeze(unresolvedRuntimeRegions.map(region => region.id).sort()),
     gaps: Object.freeze(gaps)
   });
 }

@@ -99,6 +99,7 @@ test("first uncached plan blocks ordinary work until the host LLM completes sema
   assert.equal(first.semantic_bootstrap.status, "required");
   assert.equal(first.semantic_atlas, null);
   assert.equal(first.contract_map, null);
+  assert.equal(first.effect_runtime_atlas, null);
   assert.equal(first.trace_handoff, null);
   assert.equal(first.context_available, false);
   assert.equal(first.corridor, null);
@@ -118,6 +119,9 @@ test("live native service exposes semantic orientation then bounded plan/context
   assert.equal(plan.semantic_coverage.bootstrap_complete, true);
   assert.equal(plan.contract_map.schema_version, 1);
   assert.ok(plan.contract_map.summary.contract_count >= 1);
+  assert.equal(plan.effect_runtime_atlas.schema_version, 1);
+  assert.equal(typeof plan.effect_runtime_atlas.summary.node_count, "number");
+  assert.equal(typeof plan.effect_runtime_atlas.coverage.partial, "boolean");
   assert.equal(plan.trace_handoff, null);
   assert.equal(plan.context_available, true);
   assert.equal(JSON.stringify(plan).includes(repository.text), false, "plan must never expose exhaustive repository source");
@@ -140,6 +144,8 @@ test("live native service exposes semantic orientation then bounded plan/context
   assert.ok(result.semantic_atlas);
   assert.ok(result.contract_map);
   assert.equal(result.contract_map.schema_version, 1);
+  assert.ok(result.effect_runtime_atlas);
+  assert.equal(result.effect_runtime_atlas.schema_version, 1);
   assert.equal(service.result({ run_id: plan.run_id }).state, "SUCCEEDED");
 });
 

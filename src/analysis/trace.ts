@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { RepositoryModel, SymbolRecord } from "../repository/model.js";
 import type { PatchCorridor } from "../planning/patch-corridor.js";
 import { buildTraceGraph, type TraceEdge } from "./trace-graph.js";
+import { buildEffectRuntimeAtlas, type EffectRuntimeAtlas } from "./effect-runtime-linker.js";
 
 /**
  * Canonical bounded trace engine.
@@ -129,9 +130,23 @@ function exactSymbol(value: string, model: RepositoryModel): SymbolRecord | null
 function resolveObjectiveSeed(
   request: TraceRequest,
   model: RepositoryModel,
-  corridor: PatchCorridor
+  corridor: PatchCorridor,
+  atlas: EffectRuntimeAtlas
 ): SymbolRecord | null {
   if (request.sourceSymbol) return exactSymbol(request.sourceSymbol, model);
+
+  const terms = objectiveTerms(request.objective);
+  const corridorPaths = new Set(corridor.files.map(file => file.path));
+  const atlasCandidates = atlas.nodes.filter(node => node.kind === "entry-point" && !node.symbol.startsWith("<") && (!corridor.certified || corridorPaths.has(node.file))).map(node => {
+    const text = normalize(`${node.symbol} ${node.file} ${node.effectKind} ${node.detail}`);
+    const score = terms.reduce((sum, term) => sum + (text.includes(term) ? 8 : 0), 0);
+    return { node, score };
+  }).filter(row => row.score > 0).sort((left, right) => right.score - left.score || left.node.file.localeCompare(right.node.file) || left.node.lineStart - right.node.lineStart);
+  const atlasSeed = atlasCandidates[0]?.node;
+  if (atlasSeed) {
+    const symbol = model.symbols.find(candidate => candidate.file === atlasSeed.file && candidate.name === atlasSeed.symbol);
+    if (symbol) return symbol;
+  }
 
   const corridorCandidates = corridor.files
     .flatMap(file => file.symbols.map(anchor => ({ file: file.path, name: anchor.name, score: anchor.score })))
@@ -142,7 +157,6 @@ function resolveObjectiveSeed(
     if (symbol) return symbol;
   }
 
-  const terms = objectiveTerms(request.objective);
   const ranked = model.symbols
     .map(symbol => {
       const name = normalize(symbol.name);
@@ -203,7 +217,8 @@ function nodeParts(nodeId: string): { readonly name: string; readonly file: stri
 export function analyzeTrace(
   request: TraceRequest,
   model: RepositoryModel,
-  corridor: PatchCorridor
+  corridor: PatchCorridor,
+  effectRuntimeAtlas: EffectRuntimeAtlas = buildEffectRuntimeAtlas(model)
 ): TraceResult {
   const requestId = request.requestId ?? cryptoFingerprint(request);
   const emptyResult = (): TraceResult => Object.freeze({
@@ -215,7 +230,7 @@ export function analyzeTrace(
     evidence: Object.freeze([])
   });
 
-  const chosen = resolveObjectiveSeed(request, model, corridor);
+  const chosen = resolveObjectiveSeed(request, model, corridor, effectRuntimeAtlas);
   if (!chosen) return emptyResult();
 
   const options = request.options ?? {};
@@ -224,7 +239,7 @@ export function analyzeTrace(
   const terminateOnFirstBlocker = options.terminateOnFirstBlocker !== false;
   const allowedFiles = corridor.certified ? new Set(corridor.files.map(file => file.path)) : null;
 
-  const graph = buildTraceGraph(model);
+  const graph = buildTraceGraph(model, effectRuntimeAtlas);
   const startNodeId = `${chosen.name}@${chosen.file}`;
 
   const pathAllowed = (file: string): boolean => {
@@ -297,8 +312,15 @@ export function analyzeTrace(
   };
 
   const effectAtNode = (nodeId: string): EffectRecord | null => {
-    if (!request.targetEffect) return null;
     const { name, file } = nodeParts(nodeId);
+    const atlasEffect = effectRuntimeAtlas.nodes.find(candidate =>
+      candidate.file === file && candidate.symbol === name &&
+      (candidate.kind === "effect-sink" || candidate.kind === "integration-boundary") &&
+      candidate.reconciliation !== "unresolved" && candidate.reconciliation !== "native-conflict" &&
+      (!request.targetEffect || candidate.effectKind === request.targetEffect || candidate.symbol === request.targetEffect)
+    );
+    if (atlasEffect) return Object.freeze({ kind: atlasEffect.effectKind, symbol: atlasEffect.symbol, file: atlasEffect.file });
+    if (!request.targetEffect) return null;
     const effect = model.effects.find(candidate =>
       candidate.file === file &&
       (candidate.symbol === name || candidate.symbol === "<module>") &&

@@ -105,7 +105,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_plan",
     {
       title: "Plan Governed Change",
-      description: "Start all governed repository work. On the first uncached plan for a repository commit/profile, ChryPck intentionally stops before ordinary diagnostics and returns semantic_bootstrap.status='required' plus one bounded metadata chunk. The host LLM must complete that evidence-grounded bootstrap before ordinary repository work. Once bootstrapped, each plan returns Structural/Semantic orientation, a reconciled bounded Contract Map, compressed diagnostics and a certified corridor/Contract-aware context, with optional canonical Trace analysis. Trace is the single bounded evidence-backed BEFT-derived tracing mode and is persisted as an authoritative run artifact. When Trace returns permitted_next_action='create_normal_plan_with_trace_handoff', make a new normal chrypck_plan call with trace_handoff {run_id, optional certificate_id}; ChryPck validates same repository/commit/profile lineage and feeds only the certified Trace path evidence into fresh Patch Corridor certification. Contract Map and Trace evidence never directly grant mutation authority or exact-source access.",
+      description: "Start governed repository work. After mandatory bounded Semantic Atlas bootstrap, plans return Structural/Semantic orientation, the canonical bounded Effect / Runtime Atlas, reconciled Contract Map, compressed diagnostics and a certified corridor/Contract-and-Runtime-aware context. Effect / Runtime Atlas maps possible behavior; canonical Trace certifies one focused route and can be handed into a distinct normal plan through trace_handoff. Atlas, Contract Map and Trace evidence never directly grant mutation authority or exact-source access.",
       inputSchema: z.object({
         repository: z.string().min(1).describe("Repository slug. For the configured ChryPck owner, prefer the bare repository name (for example LEMONADE_ORC); owner/name and GitHub URLs remain accepted when needed."),
         objective: z.string().trim().min(1).describe("Exact user-authorized repository outcome to investigate or implement. Keep the same objective while completing a semantic bootstrap continuation."),
@@ -129,7 +129,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_context",
     {
       title: "Read Certified Context",
-      description: "Read server-certified Contract-aware Context Pack evidence for an existing READY normal-plan run after any required Semantic Atlas bootstrap and planning complete. Its index includes bounded Contract Map role and reconciliation evidence. A Trace run itself does not expose Context Pack source; first create a normal plan, using trace_handoff when Trace evidence should inform its corridor. Omit segment_id for the certified index; provide one server-issued segment_id for one bounded source expansion. Never accepts arbitrary repository paths.",
+      description: "Read server-certified Context Pack evidence for an existing READY normal-plan run. Its bounded index includes Contract Map roles and Effect / Runtime Atlas roles, effect families, reconciliation and verification targets. A Trace run itself exposes no Context Pack source; use trace_handoff to create a distinct normal plan. Never accepts arbitrary repository paths.",
       inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by a normal chrypck_plan."), segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the certified index.") }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
@@ -140,7 +140,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_execute",
     {
       title: "Execute Governed Change",
-      description: "Mutate an existing fully bootstrapped and normally planned READY run using exactly one mode: typed bounded authoring_intent edits or explicit architecture_approval of a server-issued reviewed plan. Contract Map and Trace/trace_handoff evidence may inform the certified plan but never widen execution authority by themselves. ChryPck performs Contract-aware propagation, validation, and atomic publication.",
+      description: "Mutate a fully bootstrapped READY normal-plan run using typed bounded authoring_intent or explicit architecture approval. Effect / Runtime Atlas, Contract Map and Trace lineage inform but never widen execution authority. ChryPck performs runtime/contract-aware propagation, validation and atomic publication.",
       inputSchema: executeSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
     },
@@ -151,7 +151,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_result",
     {
       title: "Read Governed Result",
-      description: "Read the authoritative bounded run state/outcome for an existing run. Normal plans expose the reconciled Contract Map; Trace runs retain their full authoritative Trace artifact and certificate here; normal plans report any accepted trace_handoff lineage alongside semantic orientation, Contract-aware propagation/validation evidence, telemetry, terminal state, and other bounded native evidence.",
+      description: "Read authoritative bounded run state. Normal plans expose Effect / Runtime Atlas and Contract Map evidence; Trace runs retain their artifact/certificate; execution results include runtime/contract propagation, validation targets, telemetry and publication state.",
       inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan." ) }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },

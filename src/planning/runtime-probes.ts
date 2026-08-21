@@ -1,5 +1,6 @@
 import type { RepositoryModel } from "../repository/model.js";
 import type { PatchCorridor, CorridorClause } from "./patch-corridor.js";
+import { buildEffectRuntimeAtlas, type EffectRuntimeAtlas } from "../analysis/effect-runtime-linker.js";
 
 export interface RuntimeProbe {
   readonly id: string;
@@ -28,7 +29,7 @@ function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "probe";
 }
 
-function probesForClause(clause: CorridorClause, model: RepositoryModel): RuntimeProbe[] {
+function probesForClause(clause: CorridorClause, model: RepositoryModel, atlas: EffectRuntimeAtlas): RuntimeProbe[] {
   const output: RuntimeProbe[] = [];
   const paths = new Set([clause.owner, ...clause.path].filter((value): value is string => Boolean(value)));
   for (const path of [...paths].sort()) {
@@ -61,16 +62,25 @@ function probesForClause(clause: CorridorClause, model: RepositoryModel): Runtim
       label: `${symbol.kind} ${symbol.name}`,
       evidence: Object.freeze({ symbol: symbol.name, line: symbol.line, exported: symbol.exported })
     }));
+    const runtimeNodes = atlas.nodes.filter(node => node.file === path && node.effectKind !== "symbol-operation" && node.reconciliation !== "unresolved");
+    for (const node of runtimeNodes) output.push(Object.freeze({
+      id: `effect-${slug(node.id)}`,
+      clauseId: clause.id,
+      kind: node.kind === "entry-point" && node.effectKind === "hooks" ? "hook" : "effect",
+      path,
+      label: `${node.kind}: ${node.detail} at ${path}:${node.lineStart}`,
+      evidence: Object.freeze({ runtimeNodeId: node.id, runtimeRegionIds: atlas.regions.filter(region => region.nodeIds.includes(node.id)).map(region => region.id), effectKind: node.effectKind, role: node.kind, reconciliation: node.reconciliation, line: node.lineStart })
+    }));
   }
   const unique = new Map(output.map(probe => [probe.id, probe] as const));
   return [...unique.values()].sort((left, right) => left.id.localeCompare(right.id)).slice(0, 8);
 }
 
-export function planRuntimeProbes(corridor: PatchCorridor, model: RepositoryModel): RuntimeProbePlan {
+export function planRuntimeProbes(corridor: PatchCorridor, model: RepositoryModel, effectRuntimeAtlas: EffectRuntimeAtlas = buildEffectRuntimeAtlas(model)): RuntimeProbePlan {
   const probes: RuntimeProbe[] = [];
   const objectives: RuntimeProbeObjective[] = [];
   for (const clause of corridor.clauses) {
-    const clauseProbes = clause.complete ? probesForClause(clause, model) : [];
+    const clauseProbes = clause.complete ? probesForClause(clause, model, effectRuntimeAtlas) : [];
     if (clauseProbes.length === 0) {
       const manual: RuntimeProbe = Object.freeze({
         id: `manual-${clause.id}`,

@@ -1,4 +1,5 @@
 import type { RepositoryModel, SymbolRecord } from "../repository/model.js";
+import type { EffectRuntimeAtlas } from "./effect-runtime-linker.js";
 
 export type EdgeKind =
   | "calls"
@@ -32,7 +33,7 @@ function nodeId(symbol: SymbolRecord) {
   return `${symbol.name}@${symbol.file}`;
 }
 
-export function buildTraceGraph(model: RepositoryModel): TraceGraph {
+export function buildTraceGraph(model: RepositoryModel, effectRuntimeAtlas?: EffectRuntimeAtlas): TraceGraph {
   const nodes: TraceNode[] = model.symbols.map(s => ({ id: nodeId(s), name: s.name, file: s.file, line: s.line }));
   const nodeMap = new Map(nodes.map(n => [n.id, n]));
   const edges: TraceEdge[] = [];
@@ -75,7 +76,26 @@ export function buildTraceGraph(model: RepositoryModel): TraceGraph {
     }
   }
 
-  return Object.freeze({ nodes: Object.freeze(nodes), edges: Object.freeze(edges) });
+  if (effectRuntimeAtlas) {
+    const runtimeNodes = new Map(effectRuntimeAtlas.nodes.map(node => [node.id, node] as const));
+    const runtimeKind = (kind: string): EdgeKind => {
+      if (kind === "calls" || kind === "invokes-callback" || kind === "registers") return "calls";
+      if (kind === "reads-state") return "state-read";
+      if (kind === "writes-state") return "state-write";
+      if (kind === "delegates-native" || kind === "crosses-integration-boundary") return "native-boundary";
+      return "effect";
+    };
+    for (const edge of effectRuntimeAtlas.edges.filter(edge => edge.reconciliation !== "unresolved" && edge.reconciliation !== "native-conflict")) {
+      const from = runtimeNodes.get(edge.from), to = runtimeNodes.get(edge.to);
+      if (!from || !to || from.symbol.startsWith("<") || to.symbol.startsWith("<")) continue;
+      const fromId = `${from.symbol}@${from.file}`, toId = `${to.symbol}@${to.file}`;
+      if (!nodeMap.has(fromId) || !nodeMap.has(toId)) continue;
+      edges.push({ from: fromId, to: toId, kind: runtimeKind(edge.kind), evidence: [`Effect / Runtime Atlas ${edge.reconciliation}: ${edge.id}`] });
+    }
+  }
+
+  const uniqueEdges = [...new Map(edges.map(edge => [`${edge.from}|${edge.to}|${edge.kind}`, edge] as const)).values()];
+  return Object.freeze({ nodes: Object.freeze(nodes), edges: Object.freeze(uniqueEdges) });
 }
 
 export function findNodeBySymbol(name: string, model: RepositoryModel): TraceNode | null {

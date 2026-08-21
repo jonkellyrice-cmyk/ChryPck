@@ -201,6 +201,13 @@ export function projectContextIndexSegment(segment: ContextSegment): Readonly<Re
       verification: contract.verification,
       native_contract_refs: contract.nativeContractRefs,
       failures: contract.failures
+    }))),
+    runtime: Object.freeze((segment.runtime ?? []).slice(0, MAX_INDEX_RELATIONSHIPS).map(runtime => Object.freeze({
+      region_id: runtime.regionId,
+      roles: runtime.roles,
+      effect_kinds: runtime.effectKinds,
+      reconciliation: runtime.reconciliation,
+      verification_target: runtime.verificationTarget
     })))
   });
 }

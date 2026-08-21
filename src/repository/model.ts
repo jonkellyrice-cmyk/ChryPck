@@ -1,6 +1,7 @@
 import type { RepositorySnapshot } from "./snapshot.js";
 import type { ContractFileFacts, ContractMap } from "./contract-types.js";
 import { emptyContractMap } from "./contract-types.js";
+import type { EffectRuntimeEdge, EffectRuntimeNode } from "./effect-runtime-types.js";
 
 export type DependencyKind = "import" | "side-effect-import" | "export-from" | "dynamic-import" | "require" | "style-import" | "template-reference" | "manifest-reference";
 
@@ -54,6 +55,8 @@ export interface FileFacts {
   readonly dependencies: readonly DependencyReference[];
   readonly symbols: readonly SymbolRecord[];
   readonly effects: readonly EffectRecord[];
+  readonly runtimeNodes?: readonly EffectRuntimeNode[];
+  readonly runtimeEdges?: readonly EffectRuntimeEdge[];
   readonly states: readonly StateRecord[];
   readonly contractSites?: ContractFileFacts;
 }
@@ -65,6 +68,8 @@ export interface RepositoryModel {
   readonly unresolvedDependencies: readonly UnresolvedDependency[];
   readonly symbols: readonly SymbolRecord[];
   readonly effects: readonly EffectRecord[];
+  readonly runtimeNodes?: readonly EffectRuntimeNode[];
+  readonly runtimeEdges?: readonly EffectRuntimeEdge[];
   readonly states: readonly StateRecord[];
   readonly contractMap?: ContractMap;
 }
@@ -76,6 +81,8 @@ export const emptyModel = (snapshot: RepositorySnapshot): RepositoryModel => Obj
   unresolvedDependencies: Object.freeze([]),
   symbols: Object.freeze([]),
   effects: Object.freeze([]),
+  runtimeNodes: Object.freeze([]),
+  runtimeEdges: Object.freeze([]),
   states: Object.freeze([]),
   contractMap: emptyContractMap()
 });

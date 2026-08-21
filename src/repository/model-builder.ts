@@ -32,6 +32,8 @@ export function buildRepositoryModel(snapshot: RepositorySnapshot, options: Repo
 
   const symbols = fileFacts.flatMap(facts => facts.symbols).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.name.localeCompare(b.name));
   const effects = fileFacts.flatMap(facts => facts.effects).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.kind.localeCompare(b.kind));
+  const runtimeNodes = fileFacts.flatMap(facts => facts.runtimeNodes ?? []).sort((a, b) => a.file.localeCompare(b.file) || a.lineStart - b.lineStart || a.id.localeCompare(b.id));
+  const runtimeEdges = fileFacts.flatMap(facts => facts.runtimeEdges ?? []).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.id.localeCompare(b.id));
   const states = fileFacts.flatMap(facts => facts.states).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || `${a.namespace}.${a.key}`.localeCompare(`${b.namespace}.${b.key}`));
   dependencies.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to) || a.kind.localeCompare(b.kind));
   unresolvedDependencies.sort((a, b) => a.file.localeCompare(b.file) || a.specifier.localeCompare(b.specifier) || a.kind.localeCompare(b.kind));
@@ -44,6 +46,8 @@ export function buildRepositoryModel(snapshot: RepositorySnapshot, options: Repo
     unresolvedDependencies: Object.freeze(unresolvedDependencies),
     symbols: Object.freeze(symbols),
     effects: Object.freeze(effects),
+    runtimeNodes: Object.freeze(runtimeNodes),
+    runtimeEdges: Object.freeze(runtimeEdges),
     states: Object.freeze(states),
     contractMap
   });

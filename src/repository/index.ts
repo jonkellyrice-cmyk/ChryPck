@@ -1,6 +1,7 @@
 import type { DependencyEdge, EffectRecord, FileFacts, RepositoryModel, StateRecord, SymbolRecord, UnresolvedDependency } from "./model.js";
 import type { RepositoryFile } from "./snapshot.js";
 import type { ContractRecord } from "./contract-types.js";
+import type { EffectRuntimeEdge, EffectRuntimeNode } from "./effect-runtime-types.js";
 
 function append<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   const values = map.get(key) ?? [];
@@ -20,6 +21,12 @@ export interface RepositoryIndex {
   readonly incomingDependencies: ReadonlyMap<string, readonly DependencyEdge[]>;
   readonly unresolvedByFile: ReadonlyMap<string, readonly UnresolvedDependency[]>;
   readonly effectsByKind: ReadonlyMap<string, readonly EffectRecord[]>;
+  readonly runtimeNodesById: ReadonlyMap<string, EffectRuntimeNode>;
+  readonly runtimeNodesByKind: ReadonlyMap<string, readonly EffectRuntimeNode[]>;
+  readonly runtimeNodesByEffectKind: ReadonlyMap<string, readonly EffectRuntimeNode[]>;
+  readonly runtimeNodesByFile: ReadonlyMap<string, readonly EffectRuntimeNode[]>;
+  readonly runtimeOutgoingEdges: ReadonlyMap<string, readonly EffectRuntimeEdge[]>;
+  readonly runtimeIncomingEdges: ReadonlyMap<string, readonly EffectRuntimeEdge[]>;
   readonly statesByNamespace: ReadonlyMap<string, readonly StateRecord[]>;
   readonly contractsById: ReadonlyMap<string, ContractRecord>;
   readonly contractsByProviderFile: ReadonlyMap<string, readonly ContractRecord[]>;
@@ -35,6 +42,11 @@ export function buildIndex(model: RepositoryModel): RepositoryIndex {
   const unresolved = new Map<string, UnresolvedDependency[]>();
   const effects = new Map<string, EffectRecord[]>();
   const states = new Map<string, StateRecord[]>();
+  const runtimeByKind = new Map<string, EffectRuntimeNode[]>();
+  const runtimeByEffectKind = new Map<string, EffectRuntimeNode[]>();
+  const runtimeByFile = new Map<string, EffectRuntimeNode[]>();
+  const runtimeOutgoing = new Map<string, EffectRuntimeEdge[]>();
+  const runtimeIncoming = new Map<string, EffectRuntimeEdge[]>();
   const contractsByProvider = new Map<string, ContractRecord[]>();
   const contractsByConsumer = new Map<string, ContractRecord[]>();
 
@@ -42,6 +54,15 @@ export function buildIndex(model: RepositoryModel): RepositoryIndex {
   for (const edge of model.dependencies) { append(outgoing, edge.from, edge); append(incoming, edge.to, edge); }
   for (const reference of model.unresolvedDependencies) append(unresolved, reference.file, reference);
   for (const effect of model.effects) append(effects, effect.kind, effect);
+  for (const node of model.runtimeNodes ?? []) {
+    append(runtimeByKind, node.kind, node);
+    append(runtimeByEffectKind, node.effectKind, node);
+    append(runtimeByFile, node.file, node);
+  }
+  for (const edge of model.runtimeEdges ?? []) {
+    append(runtimeOutgoing, edge.from, edge);
+    append(runtimeIncoming, edge.to, edge);
+  }
   for (const state of model.states) append(states, state.namespace, state);
   for (const contract of model.contractMap?.contracts ?? []) {
     if (contract.provider) append(contractsByProvider, contract.provider.file, contract);
@@ -56,6 +77,12 @@ export function buildIndex(model: RepositoryModel): RepositoryIndex {
     incomingDependencies: freezeMapArrays(incoming),
     unresolvedByFile: freezeMapArrays(unresolved),
     effectsByKind: freezeMapArrays(effects),
+    runtimeNodesById: new Map((model.runtimeNodes ?? []).map(node => [node.id, node] as const)),
+    runtimeNodesByKind: freezeMapArrays(runtimeByKind),
+    runtimeNodesByEffectKind: freezeMapArrays(runtimeByEffectKind),
+    runtimeNodesByFile: freezeMapArrays(runtimeByFile),
+    runtimeOutgoingEdges: freezeMapArrays(runtimeOutgoing),
+    runtimeIncomingEdges: freezeMapArrays(runtimeIncoming),
     statesByNamespace: freezeMapArrays(states),
     contractsById: new Map((model.contractMap?.contracts ?? []).map(contract => [contract.id, contract] as const)),
     contractsByProviderFile: freezeMapArrays(contractsByProvider),
