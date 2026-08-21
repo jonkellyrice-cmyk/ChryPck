@@ -58,7 +58,7 @@ export interface NativeMcpServiceOptions {
 }
 
 function responseForMode(responseMode: "compact" | "full" | undefined, response: Readonly<Record<string, any>>) {
-  return responseMode === "full" ? response : projectCompactResponse(response);
+  return responseMode === "compact" ? projectCompactResponse(response) : response;
 }
 
 interface RunBinding {
@@ -465,9 +465,7 @@ export class NativeMcpService {
         context_segment_count: base.context?.segments.length ?? 0,
         context_index: Object.freeze(base.context?.segments.map(projectContextIndexSegment) ?? []),
         analysis: Object.freeze({ kind: "dataflow-slice" as const, result: projectDataflowSlice(sliceResult) }),
-        permitted_next_action: base.context?.segments.length
-          ? "expand_context_grant_or_create_normal_plan_with_analysis_handoff"
-          : sliceResult.status === "CERTIFIED" || sliceResult.status === "PARTIAL" ? "create_normal_plan_with_analysis_handoff" : "chrypck_result"
+        permitted_next_action: sliceResult.status === "CERTIFIED" || sliceResult.status === "PARTIAL" ? "create_normal_plan_with_analysis_handoff" : "chrypck_result"
       }));
     }
 
@@ -545,9 +543,7 @@ export class NativeMcpService {
         context_segment_count: base.context?.segments.length ?? 0,
         context_index: Object.freeze(base.context?.segments.map(projectContextIndexSegment) ?? []),
         analysis: Object.freeze({ kind: "trace" as const, result: traceResult }),
-        permitted_next_action: base.context?.segments.length
-          ? "expand_context_grant_or_create_normal_plan_with_trace_handoff"
-          : traceResult.status === "UNABLE_TO_CERTIFY" ? "chrypck_result" : "create_normal_plan_with_trace_handoff"
+        permitted_next_action: traceResult.status === "UNABLE_TO_CERTIFY" ? "chrypck_result" : "create_normal_plan_with_trace_handoff"
       }));
     }
 
