@@ -3,6 +3,7 @@ import { repositoryExtension } from "./source-profile.js";
 import { extractContractFileFacts } from "./contract-extractor.js";
 import { createHash } from "node:crypto";
 import type { EffectRuntimeEdge, EffectRuntimeEdgeKind, EffectRuntimeNode, EffectRuntimeNodeKind } from "./effect-runtime-types.js";
+import { extractDataflowFileFacts } from "./dataflow-extractor.js";
 
 function lineNumber(text: string, index: number): number {
   let line = 1;
@@ -211,6 +212,7 @@ export function parseSourceFile(file: string, text: string): FileFacts {
     runtimeNodes: runtime.nodes,
     runtimeEdges: runtime.edges,
     states: Object.freeze(extractStates(file, text)),
-    contractSites: extractContractFileFacts(file, text)
+    contractSites: extractContractFileFacts(file, text),
+    dataflow: extractDataflowFileFacts(file, text)
   });
 }

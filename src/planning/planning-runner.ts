@@ -10,6 +10,7 @@ import type { CertifiedTracePlanningEvidence } from "./trace-handoff.js";
 import type { ContractMap } from "../repository/contract-types.js";
 import { reconcileContractMap } from "../analysis/contract-reconciliation.js";
 import { buildEffectRuntimeAtlas, type EffectRuntimeAtlas } from "../analysis/effect-runtime-linker.js";
+import type { CertifiedDataflowPlanningEvidence } from "./analysis-handoff.js";
 
 export interface NativeContractRecord {
   readonly id: string;
@@ -28,6 +29,7 @@ export interface NativePlanningRequest {
   readonly model: RepositoryModel;
   readonly proposedChanges?: readonly ProposedChange[];
   readonly traceEvidence?: CertifiedTracePlanningEvidence;
+  readonly dataflowEvidence?: CertifiedDataflowPlanningEvidence;
   readonly maxFilesPerStage?: number;
   readonly extensions?: NativePlanningExtensions;
 }
@@ -41,6 +43,7 @@ export interface NativePlanningResult {
   readonly runtimeProbes: RuntimeProbePlan;
   readonly nativeContracts: readonly NativeContractRecord[];
   readonly traceEvidence: CertifiedTracePlanningEvidence | null;
+  readonly dataflowEvidence: CertifiedDataflowPlanningEvidence | null;
   readonly contractMap: ContractMap;
   readonly effectRuntimeAtlas: EffectRuntimeAtlas;
 }
@@ -60,6 +63,7 @@ export function runNativePlanning(request: NativePlanningRequest): NativePlannin
   const corridor = planPatchCorridor(request.objective, request.model, {
     diagnostics,
     traceEvidence: request.traceEvidence,
+    dataflowEvidence: request.dataflowEvidence,
     contractMap,
     effectRuntimeAtlas
   });
@@ -77,6 +81,7 @@ export function runNativePlanning(request: NativePlanningRequest): NativePlannin
     runtimeProbes,
     nativeContracts,
     traceEvidence: request.traceEvidence ?? null,
+    dataflowEvidence: request.dataflowEvidence ?? null,
     contractMap,
     effectRuntimeAtlas
   });

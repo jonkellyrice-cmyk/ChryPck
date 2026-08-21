@@ -3,6 +3,7 @@ import type { RepositoryModel, SymbolRecord } from "../repository/model.js";
 import type { ContractMap, ContractRecord } from "../repository/contract-types.js";
 import type { CertifiedTracePlanningEvidence } from "./trace-handoff.js";
 import type { EffectRuntimeAtlas } from "../analysis/effect-runtime-linker.js";
+import type { CertifiedDataflowPlanningEvidence } from "./analysis-handoff.js";
 
 const STOP_WORDS = new Set([
   "the", "and", "for", "from", "into", "with", "that", "this", "make", "change",
@@ -63,6 +64,7 @@ export interface PatchCorridorOptions {
   readonly minOwnerScore?: number;
   readonly contractMap?: ContractMap;
   readonly effectRuntimeAtlas?: EffectRuntimeAtlas;
+  readonly dataflowEvidence?: CertifiedDataflowPlanningEvidence;
 }
 
 function normalize(value: string): string {
@@ -122,13 +124,24 @@ function traceEvidenceScore(
   return score;
 }
 
+function dataflowEvidenceScore(path: string, terms: readonly string[], evidence?: CertifiedDataflowPlanningEvidence): number {
+  if (!evidence) return 0;
+  const nodes = evidence.nodes.filter(node => node.file === path);
+  if (!nodes.length) return 0;
+  const text = normalize(`${path} ${nodes.map(node => `${node.symbol} ${node.kind}`).join(" ")}`);
+  let score = nodes.some(node => evidence.sourceNodeIds.includes(node.id) || evidence.sinkNodeIds.includes(node.id)) ? 3 : 1;
+  for (const term of terms) if (text.includes(term)) score += 4;
+  return Math.min(12, score);
+}
+
 function fileScore(
   model: RepositoryModel,
   path: string,
   terms: readonly string[],
   traceEvidence?: CertifiedTracePlanningEvidence,
   contractMap?: ContractMap,
-  effectRuntimeAtlas?: EffectRuntimeAtlas
+  effectRuntimeAtlas?: EffectRuntimeAtlas,
+  dataflowEvidence?: CertifiedDataflowPlanningEvidence
 ): number {
   const facts = model.fileFacts.find(row => row.file === path);
   if (!facts) return 0;
@@ -152,7 +165,7 @@ function fileScore(
     + Math.min(3, outgoing)
     + traceEvidenceScore(path, terms, traceEvidence)
     + contractEvidenceScore(path, terms, contractMap)
-    + (repositoryEvidenceScore > 0 ? runtimeEvidenceScore(path, terms, effectRuntimeAtlas) : 0);
+    + (repositoryEvidenceScore > 0 ? runtimeEvidenceScore(path, terms, effectRuntimeAtlas) + dataflowEvidenceScore(path, terms, dataflowEvidence) : 0);
 }
 
 function runtimeRegionsFor(path: string, atlas?: EffectRuntimeAtlas) {
@@ -198,10 +211,11 @@ function candidateOwners(
   model: RepositoryModel,
   terms: readonly string[],
   traceEvidence?: CertifiedTracePlanningEvidence,
-  effectRuntimeAtlas?: EffectRuntimeAtlas
+  effectRuntimeAtlas?: EffectRuntimeAtlas,
+  dataflowEvidence?: CertifiedDataflowPlanningEvidence
 ): readonly { path: string; score: number }[] {
   return model.fileFacts
-    .map(facts => ({ path: facts.file, score: fileScore(model, facts.file, terms, traceEvidence, model.contractMap, effectRuntimeAtlas) }))
+    .map(facts => ({ path: facts.file, score: fileScore(model, facts.file, terms, traceEvidence, model.contractMap, effectRuntimeAtlas, dataflowEvidence) }))
     .filter(row => row.score > 0)
     .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
 }
@@ -277,7 +291,7 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
   const graph = adjacency(model);
   const preliminary = clauses.map((text, index) => {
     const terms = termsFor(text);
-    const candidates = candidateOwners(planningModel, terms, options.traceEvidence, options.effectRuntimeAtlas);
+    const candidates = candidateOwners(planningModel, terms, options.traceEvidence, options.effectRuntimeAtlas, options.dataflowEvidence);
     const best = candidates[0] ?? null;
     const runnerUp = candidates[1] ?? null;
     const decisive = Boolean(best && best.score >= minOwnerScore && (!runnerUp || best.score >= runnerUp.score + 2));
@@ -293,6 +307,7 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
   });
   const anchor = preliminary.find(row => row.owner)?.owner ?? null;
   const traceFiles = new Set(options.traceEvidence?.path.map(hop => hop.file) ?? []);
+  const dataflowFiles = new Set(options.dataflowEvidence?.nodes.map(node => node.file) ?? []);
   const clauseRows: CorridorClause[] = preliminary.map(row => {
     if (!row.owner) {
       return Object.freeze({
@@ -310,7 +325,9 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
       complete: true,
       basis: traceBacked
         ? "unique repository-model evidence owner strengthened by certified Trace lineage"
-        : "unique repository-model evidence owner"
+        : dataflowFiles.has(row.owner)
+          ? "unique repository-model evidence owner strengthened by certified Dataflow Slice lineage"
+          : "unique repository-model evidence owner"
     });
   });
 
@@ -325,11 +342,12 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
   const fileRows: CorridorFile[] = [...selected]
     .map(path => {
       const supportingClauses = clauseRows.filter(clause => clause.owner === path || clause.path.includes(path));
-      const score = fileScore(planningModel, path, allTerms, options.traceEvidence, options.contractMap, options.effectRuntimeAtlas);
+      const score = fileScore(planningModel, path, allTerms, options.traceEvidence, options.contractMap, options.effectRuntimeAtlas, options.dataflowEvidence);
       const reasons = supportingClauses.map(clause => `${clause.id}: ${clause.owner === path ? "owner" : "dependency path"}`);
       if (traceFiles.has(path) && options.traceEvidence) {
         reasons.push(`certified Trace lineage from ${options.traceEvidence.sourceRunId}`);
       }
+      if (dataflowFiles.has(path) && options.dataflowEvidence) reasons.push(`certified Dataflow Slice lineage from ${options.dataflowEvidence.sourceRunId}`);
       const contracts = objectiveContracts.filter(contract => contract.provider?.file === path || contract.consumers.some(endpoint => endpoint.file === path));
       for (const contract of contracts) reasons.push(`Contract Map ${contract.reconciliation}: ${contract.name}`);
       const runtimeRegions = runtimeRegionsFor(path, options.effectRuntimeAtlas);

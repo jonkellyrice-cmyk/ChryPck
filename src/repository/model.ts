@@ -2,6 +2,7 @@ import type { RepositorySnapshot } from "./snapshot.js";
 import type { ContractFileFacts, ContractMap } from "./contract-types.js";
 import { emptyContractMap } from "./contract-types.js";
 import type { EffectRuntimeEdge, EffectRuntimeNode } from "./effect-runtime-types.js";
+import type { DataflowEdge, DataflowFileFacts, DataflowGap, DataflowNode } from "./dataflow-types.js";
 
 export type DependencyKind = "import" | "side-effect-import" | "export-from" | "dynamic-import" | "require" | "style-import" | "template-reference" | "manifest-reference";
 
@@ -59,6 +60,7 @@ export interface FileFacts {
   readonly runtimeEdges?: readonly EffectRuntimeEdge[];
   readonly states: readonly StateRecord[];
   readonly contractSites?: ContractFileFacts;
+  readonly dataflow?: DataflowFileFacts;
 }
 
 export interface RepositoryModel {
@@ -72,6 +74,9 @@ export interface RepositoryModel {
   readonly runtimeEdges?: readonly EffectRuntimeEdge[];
   readonly states: readonly StateRecord[];
   readonly contractMap?: ContractMap;
+  readonly dataflowNodes?: readonly DataflowNode[];
+  readonly dataflowEdges?: readonly DataflowEdge[];
+  readonly dataflowGaps?: readonly DataflowGap[];
 }
 
 export const emptyModel = (snapshot: RepositorySnapshot): RepositoryModel => Object.freeze({
@@ -84,5 +89,8 @@ export const emptyModel = (snapshot: RepositorySnapshot): RepositoryModel => Obj
   runtimeNodes: Object.freeze([]),
   runtimeEdges: Object.freeze([]),
   states: Object.freeze([]),
-  contractMap: emptyContractMap()
+  contractMap: emptyContractMap(),
+  dataflowNodes: Object.freeze([]),
+  dataflowEdges: Object.freeze([]),
+  dataflowGaps: Object.freeze([])
 });

@@ -35,6 +35,9 @@ export function buildRepositoryModel(snapshot: RepositorySnapshot, options: Repo
   const runtimeNodes = fileFacts.flatMap(facts => facts.runtimeNodes ?? []).sort((a, b) => a.file.localeCompare(b.file) || a.lineStart - b.lineStart || a.id.localeCompare(b.id));
   const runtimeEdges = fileFacts.flatMap(facts => facts.runtimeEdges ?? []).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.id.localeCompare(b.id));
   const states = fileFacts.flatMap(facts => facts.states).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || `${a.namespace}.${a.key}`.localeCompare(`${b.namespace}.${b.key}`));
+  const dataflowNodes = fileFacts.flatMap(facts => facts.dataflow?.nodes ?? []).sort((a, b) => a.file.localeCompare(b.file) || a.lineStart - b.lineStart || a.id.localeCompare(b.id));
+  const dataflowEdges = fileFacts.flatMap(facts => facts.dataflow?.edges ?? []).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.id.localeCompare(b.id));
+  const dataflowGaps = fileFacts.flatMap(facts => facts.dataflow?.gaps ?? []).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.id.localeCompare(b.id));
   dependencies.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to) || a.kind.localeCompare(b.kind));
   unresolvedDependencies.sort((a, b) => a.file.localeCompare(b.file) || a.specifier.localeCompare(b.specifier) || a.kind.localeCompare(b.kind));
   const contractMap = linkContractMap(fileFacts, dependencies, unresolvedDependencies, states);
@@ -49,6 +52,9 @@ export function buildRepositoryModel(snapshot: RepositorySnapshot, options: Repo
     runtimeNodes: Object.freeze(runtimeNodes),
     runtimeEdges: Object.freeze(runtimeEdges),
     states: Object.freeze(states),
-    contractMap
+    contractMap,
+    dataflowNodes: Object.freeze(dataflowNodes),
+    dataflowEdges: Object.freeze(dataflowEdges),
+    dataflowGaps: Object.freeze(dataflowGaps)
   });
 }
