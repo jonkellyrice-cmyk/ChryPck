@@ -244,6 +244,33 @@ export function projectContextContinuation(continuation: ContextContinuation): R
   });
 }
 
+export function contextProgressFingerprint(value: Readonly<Record<string, unknown>>): string {
+  return createHash("sha256").update(JSON.stringify({
+    run_id: value.run_id ?? null,
+    mode: value.mode ?? null,
+    target: value.target ?? null,
+    segment_ids: Array.isArray(value.segments)
+      ? value.segments.map(segment => {
+          const row = asRecord(segment);
+          return row ? {
+            id: row.id ?? null,
+            parent_segment_id: row.parent_segment_id ?? null,
+            path: row.path ?? null,
+            symbol: row.symbol ?? null,
+            chunk_index: row.chunk_index ?? null,
+            chunk_count: row.chunk_count ?? null,
+            line_start: row.lineStart ?? null,
+            line_end: row.lineEnd ?? null,
+            next_segment_id: row.next_segment_id ?? null
+          } : null;
+        })
+      : [],
+    continuation: value.continuation ?? null,
+    evidence_sufficient: value.evidence_sufficient ?? false,
+    permitted_next_action: value.permitted_next_action ?? null
+  })).digest("hex");
+}
+
 export function projectTraceHop(hop: any): Readonly<Record<string, unknown>> {
   return Object.freeze({
     hop: hop.hop,
@@ -365,6 +392,11 @@ export function projectCompactResponse(response: Readonly<Record<string, any>>):
     analysis: response.analysis ?? null,
     context_grants: rankedContext.map(row => row.segment?.id ?? row.segment?.segment_id ?? null),
     permitted_next_action: response.permitted_next_action ?? null,
+    semantic_bootstrap: semanticBootstrap ? {
+      status: semanticBootstrap.status ?? null,
+      bootstrap_id: semanticBootstrap.bootstrap_id ?? null,
+      current_chunk_id: asRecord(semanticBootstrap.current_chunk)?.chunk_id ?? null
+    } : null,
     result_commit_sha: response.result_commit_sha ?? null
   })).digest("hex");
   return Object.freeze({
