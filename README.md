@@ -19,6 +19,8 @@ Semantic Atlas bootstrap             (what major things are for)
         ↓
 diagnostic projections/maps          (compressed/lossy relationships)
         ↓
+Effect / Runtime Atlas                (possible runtime behavior and effects)
+        ↓
 canonical bounded Trace               (optional causal analysis)
         ↓
 certified Trace handoff               (optional analysis lineage)
@@ -36,7 +38,9 @@ The Structural Repository Atlas is a bounded whole-repository path/tree orientat
 
 The model does not receive arbitrary repository search/list/read primitives. If compressed evidence is insufficient, ChryPck returns a capability/abstraction gap or produces a newly justified certified context expansion; the model does not fall back to repository exploration.
 
-Model-visible diagnostic surfaces include Structural Repository Atlas, Semantic Atlas, structural/semantic coverage ledgers, dependency graph/watershed, symbol families, effect atlas, integration surfaces, runtime signals, state namespaces, native-contract evidence, runtime probes, canonical Trace, analysis lineage, Patch Corridor, Context Pack, and Change Propagation results.
+Model-visible diagnostic surfaces include Structural Repository Atlas, Semantic Atlas, structural/semantic coverage ledgers, dependency graph/watershed, symbol families, the canonical Effect / Runtime Atlas, integration surfaces, state namespaces, native-contract evidence, runtime probes, canonical Trace, analysis lineage, Patch Corridor, Context Pack, and Change Propagation results. `effect-atlas` and `runtime-signals` remain compatibility projections for one connector generation; new workflows use `effect-runtime-atlas`.
+
+The Effect / Runtime Atlas maps possible behavior across entry points, operations, state access, integration boundaries, terminal effects and observation points. It reports explicit coverage, unresolved links and repository/native reconciliation. Trace consumes this topology to certify one focused causal route. Neither the Atlas nor Trace grants mutation authority: only the current normal plan's independently certified Patch Corridor does so.
 
 ## Mandatory first-pass Semantic Atlas bootstrap
 
@@ -100,7 +104,7 @@ The manifest deliberately does not contain deployment credentials, application-s
 1. semantic bootstrap if required
 2. Structural Atlas + structural coverage
 3. Semantic Atlas + semantic coverage
-4. general dependency/runtime/symbol/state/native-contract diagnostics
+4. general dependency/symbol/state/native-contract diagnostics plus Effect / Runtime Atlas
 5. canonical Trace when causal/runtime investigation is useful
 6. if Trace was used, create a distinct normal plan with certified trace_handoff
 7. fresh Patch Corridor certification for the current normal plan
@@ -111,7 +115,7 @@ The manifest deliberately does not contain deployment credentials, application-s
 12. authoritative result
 ```
 
-Structural Atlas tells the model **where things are**. Semantic Atlas tells it **what major things are for**. The hidden Repository Model and diagnostics tell it **how things are connected**. Trace provides bounded causal evidence. Trace handoff preserves that evidence across analysis and planning without granting mutation authority. Context Pack provides **exact implementation only where justified by the current certified plan**.
+Structural Atlas tells the model **where things are**. Semantic Atlas tells it **what major things are for**. Effect / Runtime Atlas tells it **what runtime behavior may occur and where effects can be observed**. Trace certifies one focused causal route. Trace handoff preserves that evidence across analysis and planning without granting mutation authority. Context Pack provides **exact implementation only where justified by the current certified plan**.
 
 If those layers disagree, deterministic repository evidence, native contracts, Trace evidence, the current Patch Corridor, and certified source override semantic interpretation.
 

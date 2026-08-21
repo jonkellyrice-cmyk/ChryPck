@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { DependencyReference, RepositoryModel, SymbolRecord } from "../repository/model.js";
 import type { PatchCorridor } from "./patch-corridor.js";
 import type { ContractRecord } from "../repository/contract-types.js";
+import type { EffectRuntimeAtlas, EffectRuntimeReconciliation } from "../analysis/effect-runtime-linker.js";
 
 const MAX_CONTEXT_SYMBOLS_PER_SEGMENT = 6;
 const MAX_SYMBOL_SOURCE_LINES = 120;
@@ -42,6 +43,7 @@ export interface ContextSegment {
   readonly dependencies: readonly DependencyReference[];
   readonly consumers: readonly string[];
   readonly contracts: readonly ContextContractEvidence[];
+  readonly runtime: readonly ContextRuntimeEvidence[];
 }
 
 export interface ContextContractEvidence {
@@ -53,6 +55,14 @@ export interface ContextContractEvidence {
   readonly verification: ContractRecord["verification"];
   readonly nativeContractRefs: readonly string[];
   readonly failures: readonly string[];
+}
+
+export interface ContextRuntimeEvidence {
+  readonly regionId: string;
+  readonly roles: readonly string[];
+  readonly effectKinds: readonly string[];
+  readonly reconciliation: EffectRuntimeReconciliation;
+  readonly verificationTarget: boolean;
 }
 
 export interface CorridorContextPack {
@@ -203,7 +213,22 @@ function contractEvidence(path: string, contractIds: readonly string[], model: R
     .sort((left, right) => left.id.localeCompare(right.id)));
 }
 
-export function buildContextPack(corridor: PatchCorridor, model: RepositoryModel, maxSegments = 24): CorridorContextPack {
+function runtimeEvidence(path: string, regionIds: readonly string[], atlas?: EffectRuntimeAtlas): readonly ContextRuntimeEvidence[] {
+  const ids = new Set(regionIds);
+  if (!atlas) return Object.freeze([]);
+  return Object.freeze(atlas.regions.filter(region => ids.has(region.id) && region.files.includes(path)).map(region => {
+    const nodes = atlas.nodes.filter(node => region.nodeIds.includes(node.id) && node.file === path);
+    return Object.freeze({
+      regionId: region.id,
+      roles: Object.freeze([...new Set(nodes.map(node => node.kind))].sort()),
+      effectKinds: Object.freeze([...new Set(nodes.map(node => node.effectKind).filter(kind => kind !== "symbol-operation"))].sort()),
+      reconciliation: region.reconciliation,
+      verificationTarget: region.observationPointIds.length > 0 || region.terminalEffectIds.length > 0
+    });
+  }).sort((left, right) => left.regionId.localeCompare(right.regionId)));
+}
+
+export function buildContextPack(corridor: PatchCorridor, model: RepositoryModel, maxSegments = 24, effectRuntimeAtlas?: EffectRuntimeAtlas): CorridorContextPack {
   if (!corridor.certified) throw new Error("Context Pack requires a certified Patch Corridor.");
   const segments: ContextSegment[] = [];
   const continuations: ContextContinuation[] = [];
@@ -232,7 +257,8 @@ export function buildContextPack(corridor: PatchCorridor, model: RepositoryModel
       symbols: Object.freeze(built.symbols),
       dependencies: Object.freeze([...facts.dependencies]),
       consumers: Object.freeze(consumers),
-      contracts: contractEvidence(row.path, row.contractIds, model)
+      contracts: contractEvidence(row.path, row.contractIds, model),
+      runtime: runtimeEvidence(row.path, row.runtimeRegionIds, effectRuntimeAtlas)
     }));
     continuations.push(...built.continuations);
   }

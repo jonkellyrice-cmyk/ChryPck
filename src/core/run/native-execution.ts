@@ -86,8 +86,8 @@ export async function executeNativeRun(orchestrator: NativeOrchestrator, request
   }
 
   const planningModel = Object.freeze({ ...request.model, contractMap: planning.contractMap });
-  const propagation = assessPropagation(transaction.staged.changes, planningModel, planning.corridor);
-  orchestrator.recordArtifact(request.runId, "propagation", propagation, { certified: propagation.certified, outsideCorridorConsumers: propagation.outsideCorridorConsumers, contractDeltas: propagation.contractDeltas.length });
+  const propagation = assessPropagation(transaction.staged.changes, planningModel, planning.corridor, planning.effectRuntimeAtlas);
+  orchestrator.recordArtifact(request.runId, "propagation", propagation, { certified: propagation.certified, outsideCorridorConsumers: propagation.outsideCorridorConsumers, contractDeltas: propagation.contractDeltas.length, runtimeRegions: propagation.impactedRuntimeRegionIds.length, runtimeVerificationTargets: propagation.runtimeObservationTargets.length + propagation.runtimeEffectSinks.length });
   if (!propagation.certified) return fail(orchestrator, request.runId, "propagation", new Error(propagation.gaps.join("; ") || "Change propagation did not certify."), propagation.gaps);
 
   orchestrator.transition(request.runId, "VALIDATING", "native_validation_started");
@@ -99,7 +99,8 @@ export async function executeNativeRun(orchestrator: NativeOrchestrator, request
       commandPlan: request.commandPlan,
       workspace: workspaceFor(transaction),
       sandboxRunner: request.sandboxRunner,
-      contractContext: { contractMap: planning.contractMap, propagation }
+      contractContext: { contractMap: planning.contractMap, propagation },
+      effectRuntimeContext: { atlas: planning.effectRuntimeAtlas, propagation }
     });
     orchestrator.recordArtifact(request.runId, "validation", validation, { passed: validation.passed, fingerprint: validation.fingerprint, commandCount: validation.commands.length, findingCount: validation.findings.length });
     transaction = await validateMutationTransaction(transaction, [{ name: "native-validation", validate: () => ({ validator: "native-validation", passed: validation.passed, summary: validation.passed ? "Native validation passed." : "Native validation failed.", details: { validationFingerprint: validation.fingerprint } }) }]);

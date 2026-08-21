@@ -2,6 +2,7 @@ import type { AnalysisResult } from "../analysis/analyzer.js";
 import type { RepositoryModel, SymbolRecord } from "../repository/model.js";
 import type { ContractMap, ContractRecord } from "../repository/contract-types.js";
 import type { CertifiedTracePlanningEvidence } from "./trace-handoff.js";
+import type { EffectRuntimeAtlas } from "../analysis/effect-runtime-linker.js";
 
 const STOP_WORDS = new Set([
   "the", "and", "for", "from", "into", "with", "that", "this", "make", "change",
@@ -22,6 +23,7 @@ export interface CorridorFile {
   readonly score: number;
   readonly symbols: readonly CorridorSymbolAnchor[];
   readonly contractIds: readonly string[];
+  readonly runtimeRegionIds: readonly string[];
 }
 
 export interface CorridorClause {
@@ -50,6 +52,7 @@ export interface PatchCorridor {
     fileCount: number;
     confidence: "high" | "medium" | "incomplete";
     contractCount: number;
+    runtimeRegionCount: number;
   }>;
 }
 
@@ -59,6 +62,7 @@ export interface PatchCorridorOptions {
   readonly maxFiles?: number;
   readonly minOwnerScore?: number;
   readonly contractMap?: ContractMap;
+  readonly effectRuntimeAtlas?: EffectRuntimeAtlas;
 }
 
 function normalize(value: string): string {
@@ -123,7 +127,8 @@ function fileScore(
   path: string,
   terms: readonly string[],
   traceEvidence?: CertifiedTracePlanningEvidence,
-  contractMap?: ContractMap
+  contractMap?: ContractMap,
+  effectRuntimeAtlas?: EffectRuntimeAtlas
 ): number {
   const facts = model.fileFacts.find(row => row.file === path);
   if (!facts) return 0;
@@ -141,11 +146,28 @@ function fileScore(
   }
   const incoming = model.dependencies.filter(edge => edge.to === path).length;
   const outgoing = model.dependencies.filter(edge => edge.from === path).length;
+  const repositoryEvidenceScore = score;
   return score
     + Math.min(4, incoming)
     + Math.min(3, outgoing)
     + traceEvidenceScore(path, terms, traceEvidence)
-    + contractEvidenceScore(path, terms, contractMap);
+    + contractEvidenceScore(path, terms, contractMap)
+    + (repositoryEvidenceScore > 0 ? runtimeEvidenceScore(path, terms, effectRuntimeAtlas) : 0);
+}
+
+function runtimeRegionsFor(path: string, atlas?: EffectRuntimeAtlas) {
+  return atlas?.regions.filter(region => region.files.includes(path)) ?? [];
+}
+
+function runtimeEvidenceScore(path: string, terms: readonly string[], atlas?: EffectRuntimeAtlas): number {
+  if (!atlas) return 0;
+  const nodes = atlas.nodes.filter(node => node.file === path);
+  let score = 0;
+  for (const node of nodes) {
+    const text = normalize(`${node.effectKind} ${node.symbol} ${node.detail}`);
+    for (const term of terms) if (text.includes(term)) score += node.kind === "entry-point" || node.kind === "effect-sink" || node.kind === "integration-boundary" ? 3 : 1;
+  }
+  return Math.min(12, score);
 }
 
 function contractText(contract: ContractRecord): string {
@@ -175,10 +197,11 @@ function contractEvidenceScore(path: string, terms: readonly string[], map?: Con
 function candidateOwners(
   model: RepositoryModel,
   terms: readonly string[],
-  traceEvidence?: CertifiedTracePlanningEvidence
+  traceEvidence?: CertifiedTracePlanningEvidence,
+  effectRuntimeAtlas?: EffectRuntimeAtlas
 ): readonly { path: string; score: number }[] {
   return model.fileFacts
-    .map(facts => ({ path: facts.file, score: fileScore(model, facts.file, terms, traceEvidence, model.contractMap) }))
+    .map(facts => ({ path: facts.file, score: fileScore(model, facts.file, terms, traceEvidence, model.contractMap, effectRuntimeAtlas) }))
     .filter(row => row.score > 0)
     .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
 }
@@ -254,7 +277,7 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
   const graph = adjacency(model);
   const preliminary = clauses.map((text, index) => {
     const terms = termsFor(text);
-    const candidates = candidateOwners(planningModel, terms, options.traceEvidence);
+    const candidates = candidateOwners(planningModel, terms, options.traceEvidence, options.effectRuntimeAtlas);
     const best = candidates[0] ?? null;
     const runnerUp = candidates[1] ?? null;
     const decisive = Boolean(best && best.score >= minOwnerScore && (!runnerUp || best.score >= runnerUp.score + 2));
@@ -302,16 +325,18 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
   const fileRows: CorridorFile[] = [...selected]
     .map(path => {
       const supportingClauses = clauseRows.filter(clause => clause.owner === path || clause.path.includes(path));
-      const score = fileScore(planningModel, path, allTerms, options.traceEvidence, options.contractMap);
+      const score = fileScore(planningModel, path, allTerms, options.traceEvidence, options.contractMap, options.effectRuntimeAtlas);
       const reasons = supportingClauses.map(clause => `${clause.id}: ${clause.owner === path ? "owner" : "dependency path"}`);
       if (traceFiles.has(path) && options.traceEvidence) {
         reasons.push(`certified Trace lineage from ${options.traceEvidence.sourceRunId}`);
       }
       const contracts = objectiveContracts.filter(contract => contract.provider?.file === path || contract.consumers.some(endpoint => endpoint.file === path));
       for (const contract of contracts) reasons.push(`Contract Map ${contract.reconciliation}: ${contract.name}`);
+      const runtimeRegions = runtimeRegionsFor(path, options.effectRuntimeAtlas);
+      for (const region of runtimeRegions) reasons.push(`Effect / Runtime Atlas ${region.reconciliation}: ${region.effectKinds.join(", ") || "runtime operation"}`);
       const anchors = symbolAnchors(model, path, allTerms);
       const confidence = Math.min(1, Math.max(0.2, score / 24));
-      return Object.freeze({ path, reasons: Object.freeze(reasons), confidence, score, symbols: Object.freeze(anchors), contractIds: Object.freeze(contracts.map(contract => contract.id).sort()) });
+      return Object.freeze({ path, reasons: Object.freeze(reasons), confidence, score, symbols: Object.freeze(anchors), contractIds: Object.freeze(contracts.map(contract => contract.id).sort()), runtimeRegionIds: Object.freeze(runtimeRegions.map(region => region.id).sort()) });
     })
     .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
     .slice(0, maxFiles);
@@ -341,7 +366,8 @@ export function planPatchCorridor(objective: string, model: RepositoryModel, opt
       coveredCount: clauseRows.length - uncovered.length,
       fileCount: fileRows.length,
       confidence,
-      contractCount: new Set(fileRows.flatMap(file => file.contractIds)).size
+      contractCount: new Set(fileRows.flatMap(file => file.contractIds)).size,
+      runtimeRegionCount: new Set(fileRows.flatMap(file => file.runtimeRegionIds)).size
     })
   });
 }
@@ -354,5 +380,5 @@ export const uncertifiedCorridor = (objective: string, _model: RepositoryModel):
   clauses: Object.freeze([]),
   gaps: Object.freeze(["Patch Corridor has not been planned."]),
   diagnostics: Object.freeze([]),
-  summary: Object.freeze({ clauseCount: 0, coveredCount: 0, fileCount: 0, confidence: "incomplete" as const, contractCount: 0 })
+  summary: Object.freeze({ clauseCount: 0, coveredCount: 0, fileCount: 0, confidence: "incomplete" as const, contractCount: 0, runtimeRegionCount: 0 })
 });

@@ -36,6 +36,7 @@ import {
   projectNativeContractMaps
 } from "./response-projection.js";
 import { projectContractMap } from "./contract-map-projection.js";
+import { projectEffectRuntimeAtlas } from "./effect-runtime-projection.js";
 
 export interface NativeMcpServiceOptions {
   readonly allowedRepositories: ReadonlySet<string>;
@@ -136,7 +137,7 @@ function architecturePlanning(
 ): NativePlanningResult {
   if (!architecturePlan) return base;
   const corridor = architectureCorridor(base.corridor.objective, model, architecturePlan, base.diagnostics);
-  const context = corridor.certified ? buildContextPack(corridor, model) : null;
+  const context = corridor.certified ? buildContextPack(corridor, model, 24, base.effectRuntimeAtlas) : null;
   return Object.freeze({
     ...base,
     corridor,
@@ -234,6 +235,7 @@ export class NativeMcpService {
       corridor: null,
       diagnostics: Object.freeze([]),
       contract_map: null,
+      effect_runtime_atlas: null,
       native_contracts: Object.freeze([]),
       architecture_plan: null,
       architecture_requires_review: false,
@@ -406,7 +408,7 @@ export class NativeMcpService {
         sourceSymbol: input.analysis.sourceSymbol,
         targetEffect: input.analysis.targetEffect,
         options: input.analysis.options
-      }, model, base.corridor);
+      }, model, base.corridor, base.effectRuntimeAtlas);
 
       this.orchestrator.recordArtifact(run.runId, "trace", traceResult, {
         status: traceResult.status,
@@ -451,6 +453,7 @@ export class NativeMcpService {
         corridor: base.corridor ?? null,
         diagnostics: projectDiagnosticMaps(base.diagnostics, base.corridor),
         contract_map: projectContractMap(base.contractMap, base.corridor.objective, base.corridor.corridor),
+        effect_runtime_atlas: projectEffectRuntimeAtlas(base.effectRuntimeAtlas, base.corridor.objective, base.corridor.corridor),
         native_contracts: projectNativeContractMaps(base.nativeContracts, base.corridor),
         architecture_plan: null,
         architecture_requires_review: false,
@@ -524,6 +527,7 @@ export class NativeMcpService {
       corridor: planning?.corridor ?? null,
       diagnostics: planning ? projectDiagnosticMaps(planning.diagnostics, planning.corridor) : [],
       contract_map: planning ? projectContractMap(planning.contractMap, planning.corridor.objective, planning.corridor.corridor) : null,
+      effect_runtime_atlas: planning ? projectEffectRuntimeAtlas(planning.effectRuntimeAtlas, planning.corridor.objective, planning.corridor.corridor) : null,
       native_contracts: planning ? projectNativeContractMaps(planning.nativeContracts, planning.corridor) : [],
       architecture_plan: architecturePlan,
       architecture_requires_review: Boolean(architecturePlan),
@@ -669,6 +673,9 @@ export class NativeMcpService {
           run.artifacts.planning.corridor.objective,
           run.artifacts.planning.corridor.corridor
         )
+        : null,
+      effect_runtime_atlas: run.artifacts.planning
+        ? projectEffectRuntimeAtlas(run.artifacts.planning.effectRuntimeAtlas, run.artifacts.planning.corridor.objective, run.artifacts.planning.corridor.corridor)
         : null,
       artifacts: summarizeRunArtifacts(run.artifacts),
       failure: run.artifacts.failure,

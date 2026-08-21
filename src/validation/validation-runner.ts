@@ -4,6 +4,7 @@ import type { SandboxCommandResult, SandboxRunner, SandboxWorkspaceFile } from "
 import { mergeValidationResults, runValidators, validationResult, type ValidationFinding, type ValidationResult, type Validator } from "./validator.js";
 import type { StructuralValidationContext } from "./structural-validator.js";
 import { validateContractImpact, type ContractValidationContext } from "./contract-validator.js";
+import { validateEffectRuntimeImpact, type EffectRuntimeValidationContext } from "./effect-runtime-validator.js";
 
 export interface ValidationCommandRecord {
   readonly id: string;
@@ -17,6 +18,7 @@ export interface NativeValidationReport {
   readonly fingerprint: string;
   readonly structural: ValidationResult;
   readonly contract: ValidationResult;
+  readonly effectRuntime: ValidationResult;
   readonly commands: readonly ValidationCommandRecord[];
   readonly findings: readonly ValidationFinding[];
 }
@@ -28,6 +30,7 @@ export interface NativeValidationRequest {
   readonly workspace: readonly SandboxWorkspaceFile[];
   readonly sandboxRunner: SandboxRunner;
   readonly contractContext?: ContractValidationContext;
+  readonly effectRuntimeContext?: EffectRuntimeValidationContext;
 }
 
 function commandFinding(command: PlannedValidationCommand, result: SandboxCommandResult): ValidationFinding | null {
@@ -50,10 +53,11 @@ function reportFingerprint(structural: ValidationResult, commands: readonly Vali
 export async function runNativeValidation(request: NativeValidationRequest): Promise<NativeValidationReport> {
   const structural = await runValidators(request.structuralContext, request.structuralValidators);
   const contract = request.contractContext ? validateContractImpact(request.contractContext) : validationResult();
+  const effectRuntime = request.effectRuntimeContext ? validateEffectRuntimeImpact(request.effectRuntimeContext) : validationResult();
   const records: ValidationCommandRecord[] = [];
   const commandFindings: ValidationFinding[] = [];
 
-  if (structural.passed && contract.passed) {
+  if (structural.passed && contract.passed && effectRuntime.passed) {
     for (const command of request.commandPlan.commands) {
       try {
         const result = await request.sandboxRunner.run(command, request.workspace);
@@ -74,12 +78,13 @@ export async function runNativeValidation(request: NativeValidationRequest): Pro
     }
   }
 
-  const combined = mergeValidationResults([structural, contract, validationResult(commandFindings)]);
+  const combined = mergeValidationResults([structural, contract, effectRuntime, validationResult(commandFindings)]);
   return Object.freeze({
     passed: combined.passed,
-    fingerprint: reportFingerprint(mergeValidationResults([structural, contract]), records, request.commandPlan.fingerprint),
+    fingerprint: reportFingerprint(mergeValidationResults([structural, contract, effectRuntime]), records, request.commandPlan.fingerprint),
     structural,
     contract,
+    effectRuntime,
     commands: Object.freeze(records),
     findings: combined.findings
   });
