@@ -797,6 +797,12 @@ export class NativeMcpService {
   result(input: ResultInput) {
     const run = this.orchestrator.store.require(input.run_id);
     const binding = this.#bindings.get(run.runId);
+    const resultContextIndex = run.artifacts.planning?.context
+      ? run.artifacts.planning.context.segments.map(projectContextIndexSegment)
+      : [];
+    const resultNextAction = run.state === "READY" && resultContextIndex.length > 0
+      ? "chrypck_context"
+      : run.stateRecord.permitted_next_action;
     return responseForMode(input.response_mode, Object.freeze({
       run_id: run.runId,
       repository: run.repository,
@@ -827,7 +833,10 @@ export class NativeMcpService {
       scope_lock_fingerprint: run.scopeLock.fingerprint,
       base_commit_sha: run.requestCommitSha,
       result_commit_sha: run.resultCommitSha,
-      permitted_next_action: run.stateRecord.permitted_next_action,
+      context_available: resultContextIndex.length > 0,
+      context_segment_count: resultContextIndex.length,
+      context_index: Object.freeze(resultContextIndex),
+      permitted_next_action: resultNextAction,
       architecture_plan: binding?.architecturePlan ?? null,
       trace_handoff: projectTraceHandoff(binding?.traceHandoff),
       analysis_handoff: projectAnalysisHandoff(binding?.analysisHandoff),
