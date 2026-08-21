@@ -38,7 +38,8 @@ import {
   projectContextSourceSegment,
   projectDiagnosticMaps,
   projectNativeContractMaps,
-  projectCompactResponse
+  projectCompactResponse,
+  contextProgressFingerprint
 } from "./response-projection.js";
 import { projectContractMap } from "./contract-map-projection.js";
 import { projectEffectRuntimeAtlas } from "./effect-runtime-projection.js";
@@ -55,6 +56,10 @@ export interface NativeMcpServiceOptions {
   readonly semanticCacheEntries?: number;
   readonly semanticAtlasCache?: SemanticAtlasCache;
   readonly semanticBootstrapStore?: SemanticBootstrapSessionStore;
+}
+
+function withContextProgress<T extends Readonly<Record<string, unknown>>>(value: T): Readonly<T & { readonly progress_fingerprint: string }> {
+  return Object.freeze({ ...value, progress_fingerprint: contextProgressFingerprint(value) });
 }
 
 function responseForMode(responseMode: "compact" | "full" | undefined, response: Readonly<Record<string, any>>) {
@@ -637,7 +642,7 @@ export class NativeMcpService {
     };
 
     if (!input.segment_id && !input.target) {
-      return Object.freeze({
+      return withContextProgress({
         ...control,
         evidence_sufficient: taskSatisfied,
         run_id: run.runId,
@@ -679,7 +684,7 @@ export class NativeMcpService {
         ? matchingContinuation.next_segment_id
         : null;
       const evidenceSufficient = taskSatisfied || nextSegmentId === null;
-      return Object.freeze({
+      return withContextProgress({
         ...control,
         evidence_sufficient: evidenceSufficient,
         run_id: run.runId,
@@ -708,7 +713,7 @@ export class NativeMcpService {
     const continuation = context.continuations.find(candidate => candidate.id === input.segment_id);
     if (!continuation) throw new Error(`Unknown server-issued Context Pack segment: ${input.segment_id}`);
     const evidenceSufficient = taskSatisfied || continuation.nextContinuationId === null;
-    return Object.freeze({
+    return withContextProgress({
       ...control,
       evidence_sufficient: evidenceSufficient,
       run_id: run.runId,

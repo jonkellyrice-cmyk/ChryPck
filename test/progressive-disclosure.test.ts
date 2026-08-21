@@ -56,6 +56,20 @@ test("semantic bootstrap retains only the active bounded chunk", () => {
   assert.equal("previous_chunks" in compact.semantic_bootstrap, false);
 });
 
+test("semantic bootstrap chunk identity advances the compact progress fingerprint", () => {
+  const response = (chunkId: string) => projectCompactResponse({
+    run_id: "run-semantic",
+    state: "READY",
+    semantic_bootstrap: {
+      status: "required",
+      bootstrap_id: "bootstrap-1",
+      current_chunk: { chunk_id: chunkId, regions: [{ id: "region-1" }] }
+    },
+    permitted_next_action: "submit_objective_semantic_expansion_via_chrypck_plan_then_resume_repository_work"
+  }) as any;
+  assert.notEqual(response("chunk-1").progress_fingerprint, response("chunk-2").progress_fingerprint);
+});
+
 test("context grants expose ranked selectors, not relationship payloads", () => {
   const grant = projectContextGrant({
     id: "ctx-3",
