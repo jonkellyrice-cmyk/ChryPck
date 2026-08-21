@@ -44,7 +44,12 @@ export interface PlanInput {
   /** Compact is the governed default: return handles and bounded grants, not every persisted artifact. */
   readonly response_mode?:ResponseMode;
 }
-export interface ContextInput{readonly run_id:string;readonly segment_id?:string}
+export interface ContextInput {
+  readonly run_id: string;
+  readonly segment_id?: string;
+  /** Direct selector over the existing certified Context Pack; never grants a new path. */
+  readonly target?: Readonly<{ path: string; symbol?: string }>;
+}
 export type ExecuteInput =
   | Readonly<{ run_id:string; authoring_intent:Readonly<{id:string;objective:string;edits:readonly AuthoringEdit[]}>; commit_message?:string; architecture_approval?:never }>
   | Readonly<{ run_id:string; architecture_approval:Readonly<{plan_id:string}>; commit_message?:string; authoring_intent?:never }>;
