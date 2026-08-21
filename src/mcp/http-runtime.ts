@@ -170,8 +170,15 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_context",
     {
       title: "Read Certified Context",
-      description: "Expand one server-issued, bounded read-only Context Pack grant. READY normal plans and terminal focused-analysis runs may expose their certified objective-local context. The index never grants arbitrary paths; source and continuation calls reveal only the selected certified segment and do not widen mutation authority.",
-      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."), segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the bounded grant index.") }),
+      description: "Expand one bounded read-only Context Pack grant by server-issued segment_id or by exact path/symbol already certified in this run. Direct target selection skips index navigation but never grants arbitrary paths or widens mutation authority. Responses include structured task/evidence sufficiency and continuation fields.",
+      inputSchema: z.object({
+        run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."),
+        segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier."),
+        target: z.object({
+          path: repositoryPath().describe("Exact path already present in this run's certified Context Pack."),
+          symbol: z.string().trim().min(1).optional().describe("Optional exact symbol within the certified path.")
+        }).optional().describe("Directly select an existing certified path/symbol when evidence has already narrowed the investigation. This never widens the Context Pack.")
+      }).refine(value => !(value.segment_id && value.target), "Use segment_id or target, never both."),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async input => toolBoundary("chrypck_context", input, () => nativeService.context(input))
