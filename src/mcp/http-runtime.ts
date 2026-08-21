@@ -68,6 +68,28 @@ const traceHandoffSchema = z.object({
   certificate_id: z.string().trim().min(1).optional().describe("Optional Trace certificate ID copied from the prior Trace result. When supplied it must exactly match the stored authoritative certificate.")
 }).describe("Certified Trace-to-plan lineage. Use only on a normal plan after Trace returns create_normal_plan_with_trace_handoff; do not combine with analysis or architecture.");
 
+const dataflowCriterionSchema = z.object({
+  symbol: z.string().trim().min(1).optional(),
+  file: repositoryPath().optional(),
+  value: z.string().trim().min(1).optional(),
+  state: z.object({ namespace: z.string().trim().min(1), key: z.string().trim().min(1) }).optional(),
+  contractId: z.string().trim().min(1).optional(),
+  effectKind: z.string().trim().min(1).optional()
+}).refine(value => Object.values(value).some(Boolean), "Dataflow criterion requires at least one selector.");
+
+const dataflowOptionsSchema = z.object({
+  maxNodes: z.number().int().positive().optional(), maxEdges: z.number().int().positive().optional(),
+  maxHops: z.number().int().positive().optional(), maxFiles: z.number().int().positive().optional(),
+  fileGlobAllow: z.array(z.string()).optional(), fileGlobDeny: z.array(z.string()).optional(),
+  symbolAllow: z.array(z.string()).optional(), symbolDeny: z.array(z.string()).optional(),
+  includeControlDependencies: z.boolean().optional()
+}).optional();
+
+const analysisHandoffSchema = z.object({
+  run_id: z.string().trim().min(1).describe("Authoritative prior focused-analysis run."),
+  artifact_id: z.string().trim().min(1).optional().describe("Optional certificate ID copied from the authoritative Trace or Dataflow Slice result.")
+}).describe("Certified focused-analysis lineage for a distinct normal plan. It supplies evidence only and never mutation authority.");
+
 const executeSchema = z.union([
   z.object({
     run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."),
@@ -105,19 +127,18 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_plan",
     {
       title: "Plan Governed Change",
-      description: "Start governed repository work. After mandatory bounded Semantic Atlas bootstrap, plans return Structural/Semantic orientation, the canonical bounded Effect / Runtime Atlas, reconciled Contract Map, compressed diagnostics and a certified corridor/Contract-and-Runtime-aware context. Effect / Runtime Atlas maps possible behavior; canonical Trace certifies one focused route and can be handed into a distinct normal plan through trace_handoff. Atlas, Contract Map and Trace evidence never directly grant mutation authority or exact-source access.",
+      description: "Start governed repository work. After Semantic Atlas bootstrap, return orientation, deterministic maps and certified planning scope. Use Trace for one causal runtime route or Dataflow Slice for bounded value provenance/influence. Persist usable analysis for analysis_handoff into a distinct normal plan; trace_handoff remains compatible. Analysis never grants mutation authority or arbitrary source access.",
       inputSchema: z.object({
         repository: z.string().min(1).describe("Repository slug. For the configured ChryPck owner, prefer the bare repository name (for example LEMONADE_ORC); owner/name and GitHub URLs remain accepted when needed."),
         objective: z.string().trim().min(1).describe("Exact user-authorized repository outcome to investigate or implement. Keep the same objective while completing a semantic bootstrap continuation."),
         base_ref: z.string().trim().min(1).optional().describe("Existing branch/ref to inspect; server policy supplies the default when omitted."),
         architecture: architectureSchema.optional().describe("Optional read-only structural planning request. Move/decompose plans require later explicit execution/approval."),
-        analysis: z.object({
-          kind: z.literal("trace"),
-          sourceSymbol: z.string().trim().min(1).optional().describe("Optional known source symbol. Omit it when ChryPck should resolve an evidence-supported entrypoint from the objective and certified corridor."),
-          targetEffect: z.string().trim().min(1).optional().describe("Optional downstream effect/symbol the trace should try to certify."),
-          options: traceOptionsSchema
-        }).optional().describe("Optional read-only canonical bounded Trace. Trace and normal planning are separate run identities; do not combine this with trace_handoff."),
+        analysis: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("trace"), sourceSymbol: z.string().trim().min(1).optional(), targetEffect: z.string().trim().min(1).optional(), options: traceOptionsSchema }),
+          z.object({ kind: z.literal("dataflow-slice"), criterion: dataflowCriterionSchema, direction: z.enum(["forward", "backward", "bidirectional"]), target: dataflowCriterionSchema.optional(), options: dataflowOptionsSchema })
+        ]).optional().describe("Optional read-only focused analysis: Trace for one causal runtime route, or Dataflow Slice for value provenance/influence."),
         trace_handoff: traceHandoffSchema.optional(),
+        analysis_handoff: analysisHandoffSchema.optional(),
         semantic_bootstrap: semanticBootstrapSchema.optional()
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
@@ -129,7 +150,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_context",
     {
       title: "Read Certified Context",
-      description: "Read server-certified Context Pack evidence for an existing READY normal-plan run. Its bounded index includes Contract Map roles and Effect / Runtime Atlas roles, effect families, reconciliation and verification targets. A Trace run itself exposes no Context Pack source; use trace_handoff to create a distinct normal plan. Never accepts arbitrary repository paths.",
+      description: "Read server-certified Context Pack evidence for an existing READY normal-plan run. Its bounded index includes Contract Map roles and Effect / Runtime Atlas roles, effect families, reconciliation and verification targets. Focused-analysis runs expose no Context Pack source; use analysis_handoff to create a distinct normal plan. trace_handoff remains compatible for Trace clients. Never accepts arbitrary repository paths.",
       inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by a normal chrypck_plan."), segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the certified index.") }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
@@ -151,7 +172,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_result",
     {
       title: "Read Governed Result",
-      description: "Read authoritative bounded run state. Normal plans expose Effect / Runtime Atlas and Contract Map evidence; Trace runs retain their artifact/certificate; execution results include runtime/contract propagation, validation targets, telemetry and publication state.",
+      description: "Read authoritative bounded run state. Normal plans expose deterministic evidence; Trace and Dataflow Slice runs retain their artifacts/certificates; execution results include propagation, validation targets, telemetry and publication state.",
       inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan." ) }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },

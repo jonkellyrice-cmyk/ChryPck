@@ -1,6 +1,8 @@
 import type { AuthoringEdit } from "../mutation/authoring-compiler.js";
 import type { ArchitectureRequest } from "../architecture/index.js";
 import type { TraceHandoffReference } from "../planning/trace-handoff.js";
+import type { AnalysisHandoffReference } from "../planning/analysis-handoff.js";
+import type { DataflowSliceCriterion, DataflowSliceDirection, DataflowSliceOptions } from "../analysis/dataflow-slice.js";
 import type { SemanticBootstrapSubmissionInput } from "../semantic/types.js";
 
 export interface TraceAnalysisInput {
@@ -19,7 +21,15 @@ export interface TraceAnalysisInput {
   };
 }
 
-export type AnalysisInput = TraceAnalysisInput;
+export interface DataflowSliceAnalysisInput {
+  readonly kind: "dataflow-slice";
+  readonly criterion: DataflowSliceCriterion;
+  readonly direction: DataflowSliceDirection;
+  readonly target?: DataflowSliceCriterion;
+  readonly options?: DataflowSliceOptions;
+}
+
+export type AnalysisInput = TraceAnalysisInput | DataflowSliceAnalysisInput;
 
 export interface PlanInput {
   readonly repository:string;
@@ -28,6 +38,7 @@ export interface PlanInput {
   readonly architecture?:ArchitectureRequest;
   readonly analysis?:AnalysisInput;
   readonly trace_handoff?:TraceHandoffReference;
+  readonly analysis_handoff?:AnalysisHandoffReference;
   readonly semantic_bootstrap?:SemanticBootstrapSubmissionInput;
 }
 export interface ContextInput{readonly run_id:string;readonly segment_id?:string}

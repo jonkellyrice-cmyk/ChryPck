@@ -2,6 +2,7 @@ import type { DependencyEdge, EffectRecord, FileFacts, RepositoryModel, StateRec
 import type { RepositoryFile } from "./snapshot.js";
 import type { ContractRecord } from "./contract-types.js";
 import type { EffectRuntimeEdge, EffectRuntimeNode } from "./effect-runtime-types.js";
+import type { DataflowEdge, DataflowNode } from "./dataflow-types.js";
 
 function append<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   const values = map.get(key) ?? [];
@@ -31,6 +32,10 @@ export interface RepositoryIndex {
   readonly contractsById: ReadonlyMap<string, ContractRecord>;
   readonly contractsByProviderFile: ReadonlyMap<string, readonly ContractRecord[]>;
   readonly contractsByConsumerFile: ReadonlyMap<string, readonly ContractRecord[]>;
+  readonly dataflowNodesById: ReadonlyMap<string, DataflowNode>;
+  readonly dataflowNodesByFile: ReadonlyMap<string, readonly DataflowNode[]>;
+  readonly dataflowOutgoingEdges: ReadonlyMap<string, readonly DataflowEdge[]>;
+  readonly dataflowIncomingEdges: ReadonlyMap<string, readonly DataflowEdge[]>;
 }
 
 export function buildIndex(model: RepositoryModel): RepositoryIndex {
@@ -49,6 +54,9 @@ export function buildIndex(model: RepositoryModel): RepositoryIndex {
   const runtimeIncoming = new Map<string, EffectRuntimeEdge[]>();
   const contractsByProvider = new Map<string, ContractRecord[]>();
   const contractsByConsumer = new Map<string, ContractRecord[]>();
+  const dataflowByFile = new Map<string, DataflowNode[]>();
+  const dataflowOutgoing = new Map<string, DataflowEdge[]>();
+  const dataflowIncoming = new Map<string, DataflowEdge[]>();
 
   for (const symbol of model.symbols) append(symbols, symbol.name, symbol);
   for (const edge of model.dependencies) { append(outgoing, edge.from, edge); append(incoming, edge.to, edge); }
@@ -68,6 +76,11 @@ export function buildIndex(model: RepositoryModel): RepositoryIndex {
     if (contract.provider) append(contractsByProvider, contract.provider.file, contract);
     for (const consumer of contract.consumers) append(contractsByConsumer, consumer.file, contract);
   }
+  for (const node of model.dataflowNodes ?? []) append(dataflowByFile, node.file, node);
+  for (const edge of model.dataflowEdges ?? []) {
+    append(dataflowOutgoing, edge.from, edge);
+    append(dataflowIncoming, edge.to, edge);
+  }
 
   return Object.freeze({
     files,
@@ -86,6 +99,10 @@ export function buildIndex(model: RepositoryModel): RepositoryIndex {
     statesByNamespace: freezeMapArrays(states),
     contractsById: new Map((model.contractMap?.contracts ?? []).map(contract => [contract.id, contract] as const)),
     contractsByProviderFile: freezeMapArrays(contractsByProvider),
-    contractsByConsumerFile: freezeMapArrays(contractsByConsumer)
+    contractsByConsumerFile: freezeMapArrays(contractsByConsumer),
+    dataflowNodesById: new Map((model.dataflowNodes ?? []).map(node => [node.id, node] as const)),
+    dataflowNodesByFile: freezeMapArrays(dataflowByFile),
+    dataflowOutgoingEdges: freezeMapArrays(dataflowOutgoing),
+    dataflowIncomingEdges: freezeMapArrays(dataflowIncoming)
   });
 }

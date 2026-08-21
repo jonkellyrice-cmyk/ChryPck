@@ -21,9 +21,9 @@ diagnostic projections/maps          (compressed/lossy relationships)
         ↓
 Effect / Runtime Atlas                (possible runtime behavior and effects)
         ↓
-canonical bounded Trace               (optional causal analysis)
+canonical Trace / Dataflow Slice      (optional focused analysis)
         ↓
-certified Trace handoff               (optional analysis lineage)
+certified analysis handoff            (optional analysis lineage)
         ↓
 Patch Corridor                        (fresh mutation-scope certification)
         ↓
@@ -38,7 +38,7 @@ The Structural Repository Atlas is a bounded whole-repository path/tree orientat
 
 The model does not receive arbitrary repository search/list/read primitives. If compressed evidence is insufficient, ChryPck returns a capability/abstraction gap or produces a newly justified certified context expansion; the model does not fall back to repository exploration.
 
-Model-visible diagnostic surfaces include Structural Repository Atlas, Semantic Atlas, structural/semantic coverage ledgers, dependency graph/watershed, symbol families, the canonical Effect / Runtime Atlas, integration surfaces, state namespaces, native-contract evidence, runtime probes, canonical Trace, analysis lineage, Patch Corridor, Context Pack, and Change Propagation results. `effect-atlas` and `runtime-signals` remain compatibility projections for one connector generation; new workflows use `effect-runtime-atlas`.
+Model-visible diagnostic surfaces include Structural Repository Atlas, Semantic Atlas, structural/semantic coverage ledgers, dependency graph/watershed, symbol families, the canonical Effect / Runtime Atlas, Contract Map, integration surfaces, state namespaces, native-contract evidence, runtime probes, canonical Trace, Dataflow Slice, analysis lineage, Patch Corridor, Context Pack, and Change Propagation results. `effect-atlas` and `runtime-signals` remain compatibility projections; new workflows use `effect-runtime-atlas`.
 
 The Effect / Runtime Atlas maps possible behavior across entry points, operations, state access, integration boundaries, terminal effects and observation points. It reports explicit coverage, unresolved links and repository/native reconciliation. Trace consumes this topology to certify one focused causal route. Neither the Atlas nor Trace grants mutation authority: only the current normal plan's independently certified Patch Corridor does so.
 
@@ -81,11 +81,19 @@ ChryPck accepts that lineage only when the stored Trace belongs to the same repo
 
 Accepted Trace lineage is **planning evidence only**. The new normal plan still builds and independently certifies a fresh Patch Corridor. A file merely appearing in the Trace path is not automatically authorized for mutation or exact-source expansion. Context Pack remains limited to the files certified by the current normal plan.
 
+## Dataflow Slice and generalized analysis handoff
+
+`analysis.kind = "dataflow-slice"` answers value-flow questions that Trace does not: where a selected value originates, how it transforms, and where it may flow. It supports `forward`, `backward`, and `bidirectional` directions with an explicit criterion, optional target, and bounded node/edge/hop/file filters. It follows syntax-backed declarations, assignments, properties, arguments, parameters, returns, state access, contract crossings, integration boundaries, and effect sinks.
+
+Dataflow Slice is static evidence, not temporal runtime certainty. Dynamic access, ambiguous bindings, unsupported syntax, policy filters, and traversal limits appear as explicit frontier or exclusion records. A result is `CERTIFIED`, `PARTIAL`, `UNABLE_TO_CERTIFY`, or `LIMITS_EXCEEDED`; CherryPick never replaces a missing criterion with an arbitrary graph node.
+
+Usable Trace or Dataflow Slice evidence can be carried into a distinct normal plan with `analysis_handoff: { run_id, artifact_id? }`. `trace_handoff` remains accepted for compatibility. The handoff is bound to repository, immutable commit, project profile, artifact kind, and certificate. Analysis lineage strengthens planning evidence only: the destination plan must still independently certify Patch Corridor before mutation or exact-source expansion.
+
 ## Model-facing MCP surface
 
 Exactly four MCP tools are exposed:
 
-- `chrypck_plan` — begin all repository work; perform mandatory chunked Semantic Atlas bootstrap when needed, return Structural + Semantic orientation and diagnostics, optionally run canonical Trace, or create a fresh normal plan from certified `trace_handoff` lineage.
+- `chrypck_plan` — begin all repository work; complete Semantic Atlas bootstrap, return orientation/diagnostics, optionally run canonical Trace or Dataflow Slice, or create a fresh normal plan from certified `analysis_handoff` lineage.
 - `chrypck_context` — return only the certified Context Pack for a READY normal plan, optionally one server-issued exact-source segment.
 - `chrypck_execute` — execute typed edits or an explicitly approved server-issued path-move plan through native mutation, propagation, validation, and atomic publication.
 - `chrypck_result` — return bounded authoritative run state, including persisted Trace/certificate or accepted Trace lineage where applicable, semantic orientation, telemetry, validation/propagation outcome, and terminal evidence.
@@ -94,7 +102,7 @@ There is no model-facing GitHub search, arbitrary file read, arbitrary GitHub wr
 
 ## Governed connector manifest
 
-ChryPck publishes a credential-free, versioned governed-connector manifest at `GET /connector-manifest`. The manifest is the service-owned description of its connector identity, MCP transport path, workflow-bundle behavior, Structural/Semantic Atlas surfaces, mandatory semantic-bootstrap procedure, canonical Trace, certified Trace-to-plan handoff, and the effect, approval, return, and error contracts for all four public MCP tools.
+ChryPck publishes a credential-free, versioned governed-connector manifest at `GET /connector-manifest`. The manifest is the service-owned description of its connector identity, MCP transport, workflow, mandatory semantic bootstrap, canonical Trace, Dataflow Slice, certified analysis handoff, and the contracts for all four public MCP tools.
 
 The manifest deliberately does not contain deployment credentials, application-specific project scope, enabled state, or user authorization. A host orchestrator such as Lemonade owns those installation and governance decisions while ChryPck remains authoritative for what the service is and which capabilities it exposes.
 
@@ -106,7 +114,7 @@ The manifest deliberately does not contain deployment credentials, application-s
 3. Semantic Atlas + semantic coverage
 4. general dependency/symbol/state/native-contract diagnostics plus Effect / Runtime Atlas
 5. canonical Trace when causal/runtime investigation is useful
-6. if Trace was used, create a distinct normal plan with certified trace_handoff
+6. if focused analysis was used, create a distinct normal plan with certified analysis_handoff (trace_handoff remains compatible)
 7. fresh Patch Corridor certification for the current normal plan
 8. certified Context Pack exact-source expansion only where needed
 9. one coherent cross-cutting patch across the currently certified path
@@ -115,7 +123,7 @@ The manifest deliberately does not contain deployment credentials, application-s
 12. authoritative result
 ```
 
-Structural Atlas tells the model **where things are**. Semantic Atlas tells it **what major things are for**. Effect / Runtime Atlas tells it **what runtime behavior may occur and where effects can be observed**. Trace certifies one focused causal route. Trace handoff preserves that evidence across analysis and planning without granting mutation authority. Context Pack provides **exact implementation only where justified by the current certified plan**.
+Structural Atlas tells the model **where things are**. Semantic Atlas tells it **what major things are for**. Effect / Runtime Atlas tells it **what runtime behavior may occur and where effects can be observed**. Trace certifies one focused causal route; Dataflow Slice certifies bounded static value provenance or influence. Analysis handoff preserves either artifact across analysis and planning without granting mutation authority. Context Pack provides **exact implementation only where justified by the current certified plan**.
 
 If those layers disagree, deterministic repository evidence, native contracts, Trace evidence, the current Patch Corridor, and certified source override semantic interpretation.
 
@@ -127,7 +135,7 @@ The Domain Decomposer and Path Mover remain intentionally less automatic than or
 
 `architecture.kind = "move"` produces a server-issued move plan plus dependency-derived import rewrites. After review, `chrypck_execute` may approve that exact `plan_id`; ChryPck executes the already-computed plan without recomputing or broadening it.
 
-Trace handoff is deliberately separate from architecture planning; a `trace_handoff` normal plan cannot simultaneously request a new architecture operation.
+Analysis handoff is deliberately separate from architecture planning; an `analysis_handoff` normal plan cannot simultaneously request a new architecture operation. The compatibility `trace_handoff` input follows the same rule.
 
 ## Native execution spine
 

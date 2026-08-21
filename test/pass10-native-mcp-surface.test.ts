@@ -90,7 +90,8 @@ test("native MCP surface keeps four distinct agent-facing operations", () => {
   assert.match(CHRYPCK_TOOLS[1]!.description, /arbitrary paths are never accepted/i);
   assert.match(CHRYPCK_TOOLS[2]!.description, /exactly one mode/);
   assert.match(CHRYPCK_TOOLS[3]!.description, /authoritative bounded run state/);
-  assert.match(CHRYPCK_TOOLS[3]!.description, /Trace artifact/);
+  assert.match(CHRYPCK_TOOLS[3]!.description, /focused-analysis artifacts/);
+  assert.match(CHRYPCK_TOOLS[3]!.description, /Dataflow Slice/);
 });
 
 test("first uncached plan blocks ordinary work until the host LLM completes semantic bootstrap", async () => {

@@ -11,7 +11,7 @@ import { CHRYPCK_TOOL_NAMES } from "../src/mcp/tools.js";
 test("governed connector manifest exactly matches the public MCP tool surface", () => {
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.schema, GOVERNED_CONNECTOR_MANIFEST_SCHEMA);
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.schemaVersion, GOVERNED_CONNECTOR_MANIFEST_VERSION);
-  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 7);
+  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 8);
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.id, "chrypck");
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.selectionMode, "workflow-bundle");
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.transport.path, "/mcp");
@@ -22,13 +22,13 @@ test("governed connector manifest exactly matches the public MCP tool surface", 
   );
 });
 
-test("governed connector manifest publishes semantic orientation, canonical Trace, and certified analysis lineage", () => {
+test("governed connector manifest publishes semantic orientation, focused analysis, and certified analysis lineage", () => {
   const manifest = CHRYPCK_GOVERNED_CONNECTOR_MANIFEST;
   assert.ok(manifest.connector.aliases.includes("ChryPck"));
   assert.ok(manifest.connector.aliases.includes("CherryPick"));
   assert.ok(manifest.connector.aliases.includes("Cherry Pick"));
 
-  assert.deepEqual(manifest.workflow.analysisModes.map(mode => mode.kind), ["trace"]);
+  assert.deepEqual(manifest.workflow.analysisModes.map(mode => mode.kind), ["trace", "dataflow-slice"]);
   assert.match(manifest.workflow.analysisModes[0]?.when ?? "", /bounded/i);
   assert.match(manifest.workflow.analysisModes[0]?.when ?? "", /evidence/i);
   assert.doesNotMatch(JSON.stringify(manifest.workflow.analysisModes), /bounded-event-trace/);
@@ -37,7 +37,7 @@ test("governed connector manifest publishes semantic orientation, canonical Trac
     "repository-atlas", "coverage-ledger", "semantic-atlas", "semantic-coverage-ledger",
     "dependency-graph", "dependency-watershed", "symbol-families", "effect-runtime-atlas", "effect-atlas",
     "integration-surfaces", "runtime-signals", "state-namespaces", "native-contracts", "contract-map",
-    "runtime-probes", "analysis-lineage", "patch-corridor", "context-pack", "change-propagation",
+    "dataflow-slice", "runtime-probes", "analysis-lineage", "patch-corridor", "context-pack", "change-propagation",
   ]) {
     assert.ok(manifest.workflow.diagnosticSurfaces.some(surface => surface.id === diagnosticId), `missing diagnostic surface ${diagnosticId}`);
   }
@@ -50,15 +50,17 @@ test("governed connector manifest publishes semantic orientation, canonical Trac
   assert.match(manifest.workflow.failurePolicy, /do not claim ChryPck is unavailable/i);
   assert.match(manifest.workflow.phases[0]?.guidance ?? "", /semantic_bootstrap/i);
   assert.match(manifest.workflow.phases[1]?.guidance ?? "", /semantic_atlas/i);
-  assert.match(manifest.workflow.phases[3]?.guidance ?? "", /only trace mode/i);
+  assert.match(manifest.workflow.phases[3]?.guidance ?? "", /exactly one focused mode/i);
+  assert.match(manifest.workflow.phases[3]?.guidance ?? "", /Dataflow Slice/i);
   assert.match(manifest.workflow.phases[4]?.guidance ?? "", /trace_handoff/i);
   assert.match(manifest.workflow.phases[4]?.guidance ?? "", /independently certify mutation scope/i);
   assert.match(manifest.capabilities[0]?.returns ?? "", /Semantic Atlas/i);
   assert.match(manifest.capabilities[0]?.description ?? "", /Trace/i);
-  assert.match(manifest.capabilities[0]?.description ?? "", /trace_handoff/i);
+  assert.match(manifest.capabilities[0]?.description ?? "", /analysis_handoff/i);
+  assert.match(manifest.capabilities[0]?.description ?? "", /Dataflow Slice/i);
   assert.match(manifest.workflow.phases[2]?.guidance ?? "", /Contract Map/i);
   assert.match(manifest.workflow.phases[2]?.guidance ?? "", /Effect \/ Runtime Atlas/i);
-  assert.match(manifest.workflow.phases[3]?.guidance ?? "", /possible behavior/i);
+  assert.match(manifest.workflow.phases[3]?.guidance ?? "", /possible runtime behavior/i);
   assert.match(manifest.workflow.diagnosticSurfaces.find(surface => surface.id === "effect-atlas")?.purpose ?? "", /compatibility projection/i);
   assert.match(manifest.workflow.diagnosticSurfaces.find(surface => surface.id === "runtime-signals")?.purpose ?? "", /compatibility projection/i);
 });

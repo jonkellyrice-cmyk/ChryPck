@@ -17,6 +17,9 @@ import type { ProjectProfileRegistry } from "../project/registry.js";
 import type { ProjectProfile } from "../project/profile.js";
 import { architectureCorridor, planArchitecture, type ArchitecturePlan } from "../architecture/index.js";
 import { analyzeTrace, type TraceResult } from "../analysis/trace.js";
+import { analyzeDataflowSlice, type DataflowSliceResult } from "../analysis/dataflow-slice.js";
+import { buildDataflowGraph } from "../analysis/dataflow-linker.js";
+import { validateAnalysisHandoff, type CertifiedAnalysisPlanningEvidence } from "../planning/analysis-handoff.js";
 import type { AuthoringIntent } from "../mutation/authoring-compiler.js";
 import { InMemorySemanticAtlasCache, semanticAtlasCacheKey, type SemanticAtlasCache } from "../semantic/cache.js";
 import {
@@ -37,6 +40,7 @@ import {
 } from "./response-projection.js";
 import { projectContractMap } from "./contract-map-projection.js";
 import { projectEffectRuntimeAtlas } from "./effect-runtime-projection.js";
+import { projectDataflowSlice } from "./dataflow-slice-projection.js";
 
 export interface NativeMcpServiceOptions {
   readonly allowedRepositories: ReadonlySet<string>;
@@ -60,6 +64,7 @@ interface RunBinding {
   readonly orientation: RepositoryOrientation;
   readonly semanticOrientation: SemanticOrientation;
   readonly traceHandoff: CertifiedTracePlanningEvidence | null;
+  readonly analysisHandoff: CertifiedAnalysisPlanningEvidence | null;
 }
 
 function repositoryName(value: string): string {
@@ -78,6 +83,7 @@ function requestId(input: PlanInput): string {
       architecture: input.architecture ?? null,
       analysis: input.analysis ?? null,
       trace_handoff: input.trace_handoff ?? null
+      ,analysis_handoff: input.analysis_handoff ?? null
     }))
     .digest("hex")
     .slice(0, 12)}`;
@@ -103,6 +109,7 @@ function requestForPlan(input: PlanInput): Record<string, unknown> {
     architecture_request: input.architecture ?? null,
     analysis_request: input.analysis ?? null,
     trace_handoff: input.trace_handoff ?? null,
+    analysis_handoff: input.analysis_handoff ?? null,
     moves: input.architecture?.kind === "move" ? input.architecture.moves : [],
     candidates: input.architecture?.kind === "decompose"
       ? (input.architecture.paths ?? []).map(source => ({ source, units: [] }))
@@ -174,6 +181,13 @@ function projectTraceHandoff(evidence: CertifiedTracePlanningEvidence | null | u
   });
 }
 
+function projectAnalysisHandoff(evidence: CertifiedAnalysisPlanningEvidence | null | undefined) {
+  if (!evidence) return null;
+  return evidence.kind === "trace"
+    ? Object.freeze({ kind: "trace" as const, source_run_id: evidence.trace.sourceRunId, artifact_id: evidence.trace.certificateId, status: evidence.trace.traceStatus, evidence_count: evidence.trace.path.length })
+    : Object.freeze({ kind: "dataflow-slice" as const, source_run_id: evidence.dataflow.sourceRunId, artifact_id: evidence.dataflow.certificateId, status: evidence.dataflow.sliceStatus, evidence_count: evidence.dataflow.nodes.length });
+}
+
 export class NativeMcpService {
   readonly orchestrator = new NativeOrchestrator();
   readonly #bindings = new Map<string, RunBinding>();
@@ -232,6 +246,7 @@ export class NativeMcpService {
         current_chunk: args.currentChunk
       }),
       trace_handoff: null,
+      analysis_handoff: null,
       corridor: null,
       diagnostics: Object.freeze([]),
       contract_map: null,
@@ -251,11 +266,14 @@ export class NativeMcpService {
     const profile = this.profileFor(repository);
     const targetRef = input.base_ref?.trim() || this.options.defaultTargetRef;
     if (!targetRef || targetRef === "HEAD") throw new Error("Planning requires an explicit branch/ref, not HEAD.");
-    if (input.trace_handoff && input.analysis) {
-      throw new Error("Trace handoff is a normal-planning input and cannot be combined with a new analysis request.");
+    if (input.trace_handoff && input.analysis_handoff) {
+      throw new Error("Use analysis_handoff or the trace_handoff compatibility input, never both.");
     }
-    if (input.trace_handoff && input.architecture) {
-      throw new Error("Trace handoff is a normal-planning input and cannot be combined with an architecture request.");
+    if ((input.trace_handoff || input.analysis_handoff) && input.analysis) {
+      throw new Error("Analysis handoff is a normal-planning input and cannot be combined with a new analysis request.");
+    }
+    if ((input.trace_handoff || input.analysis_handoff) && input.architecture) {
+      throw new Error("Analysis handoff is a normal-planning input and cannot be combined with an architecture request.");
     }
 
     const request = requestForPlan(input);
@@ -350,44 +368,99 @@ export class NativeMcpService {
     }
 
     let traceEvidence: CertifiedTracePlanningEvidence | undefined;
-    if (input.trace_handoff) {
+    let analysisEvidence: CertifiedAnalysisPlanningEvidence | undefined;
+    const handoffReference = input.analysis_handoff ?? (input.trace_handoff ? Object.freeze({ run_id: input.trace_handoff.run_id, artifact_id: input.trace_handoff.certificate_id }) : undefined);
+    if (handoffReference) {
       let sourceRun;
       try {
-        sourceRun = this.orchestrator.store.require(input.trace_handoff.run_id);
+        sourceRun = this.orchestrator.store.require(handoffReference.run_id);
       } catch {
-        throw new Error("Trace handoff rejected: source run does not exist in this ChryPck runtime.");
+        throw new Error(`${input.trace_handoff ? "Trace" : "Analysis"} handoff rejected: source run does not exist in this ChryPck runtime.`);
       }
       const sourceBinding = this.#bindings.get(sourceRun.runId);
       if (!sourceBinding) {
-        throw new Error("Trace handoff rejected: source run is missing its immutable repository/profile binding.");
+        throw new Error(`${input.trace_handoff ? "Trace" : "Analysis"} handoff rejected: source run is missing its immutable repository/profile binding.`);
       }
-      traceEvidence = validateTraceHandoff(
-        input.trace_handoff,
-        {
+      const source = {
           runId: sourceRun.runId,
           repository: sourceRun.repository,
           commitSha: sourceBinding.baseCommitSha,
           projectProfile: sourceBinding.profileId,
-          trace: sourceRun.artifacts.trace
-        },
-        {
+          trace: sourceRun.artifacts.trace,
+          dataflowSlice: sourceRun.artifacts.dataflowSlice
+        };
+      const expected = {
           repository,
           commitSha: snapshot.commitSha,
           projectProfile: profile.id
-        }
-      );
+        };
+      if (input.trace_handoff) {
+        traceEvidence = validateTraceHandoff(input.trace_handoff, source, expected);
+        analysisEvidence = Object.freeze({ kind: "trace" as const, trace: traceEvidence });
+      } else {
+        analysisEvidence = validateAnalysisHandoff(handoffReference, source, expected);
+        if (analysisEvidence.kind === "trace") traceEvidence = analysisEvidence.trace;
+      }
     }
 
     const base = runNativePlanning({
       objective: input.objective.trim(),
       model,
       traceEvidence,
+      dataflowEvidence: analysisEvidence?.kind === "dataflow-slice" ? analysisEvidence.dataflow : undefined,
       extensions: {
         additionalAnalyzers: profile.additionalAnalyzers,
         runtimeProbePlanner: profile.runtimeProbePlanner,
         nativeContractProvider: profile.nativeContractProvider
       }
     });
+
+    if (input.analysis?.kind === "dataflow-slice") {
+      this.orchestrator.recordArtifact(run.runId, "planning", base, {
+        projectProfile: profile.id,
+        corridorCertified: base.corridor.certified,
+        contextSegments: base.context?.segments.length ?? 0,
+        diagnostics: base.diagnostics.length,
+        semanticRegions: semanticOrientation.atlas.region_count,
+        architecture: null
+      });
+      const sliceResult: DataflowSliceResult = analyzeDataflowSlice({
+        requestId: run.runId,
+        repository,
+        commitSha: snapshot.commitSha,
+        objective: input.objective.trim(),
+        criterion: input.analysis.criterion,
+        direction: input.analysis.direction,
+        target: input.analysis.target,
+        options: input.analysis.options
+      }, Object.freeze({ ...model, contractMap: base.contractMap }), buildDataflowGraph(Object.freeze({ ...model, contractMap: base.contractMap }), base.effectRuntimeAtlas));
+      this.orchestrator.recordArtifact(run.runId, "dataflowSlice", sliceResult, {
+        status: sliceResult.status,
+        certificateId: sliceResult.certificate?.certificateId ?? null,
+        direction: sliceResult.direction,
+        nodes: sliceResult.nodes.length,
+        edges: sliceResult.edges.length,
+        frontier: sliceResult.unresolvedFrontier.length
+      });
+      const binding = Object.freeze({ targetRef, baseCommitSha: snapshot.commitSha, profileId: profile.id, architecturePlan: null, allowedNewPaths: Object.freeze([]), orientation, semanticOrientation, traceHandoff: null, analysisHandoff: null });
+      this.#bindings.set(run.runId, binding);
+      if (sliceResult.status === "UNABLE_TO_CERTIFY" || sliceResult.status === "LIMITS_EXCEEDED") this.orchestrator.transition(run.runId, "CAPABILITY_GAP", "native_dataflow_slice_gap");
+      else this.orchestrator.transition(run.runId, "SUCCEEDED", "native_dataflow_slice_complete");
+      return Object.freeze({
+        run_id: run.runId, state: run.state, repository: run.repository, project_profile: profile.id,
+        base_ref: targetRef, base_commit_sha: snapshot.commitSha, scope_lock_fingerprint: run.scopeLock.fingerprint,
+        repository_atlas: orientation.atlas, coverage: orientation.coverage, semantic_atlas: semanticOrientation.atlas,
+        semantic_coverage: semanticOrientation.coverage, semantic_bootstrap: Object.freeze({ status: "complete" as const, bootstrap_id: null, current_chunk: null }),
+        trace_handoff: null, analysis_handoff: null, corridor: base.corridor,
+        diagnostics: projectDiagnosticMaps(base.diagnostics, base.corridor),
+        contract_map: projectContractMap(base.contractMap, base.corridor.objective, base.corridor.corridor),
+        effect_runtime_atlas: projectEffectRuntimeAtlas(base.effectRuntimeAtlas, base.corridor.objective, base.corridor.corridor),
+        native_contracts: projectNativeContractMaps(base.nativeContracts, base.corridor),
+        architecture_plan: null, architecture_requires_review: false, context_available: false, context_segment_count: 0, context_index: Object.freeze([]),
+        analysis: Object.freeze({ kind: "dataflow-slice" as const, result: projectDataflowSlice(sliceResult) }),
+        permitted_next_action: sliceResult.status === "CERTIFIED" || sliceResult.status === "PARTIAL" ? "create_normal_plan_with_analysis_handoff" : "chrypck_result"
+      });
+    }
 
     if (input.analysis?.kind === "trace") {
       this.orchestrator.recordArtifact(run.runId, "planning", base, {
@@ -426,7 +499,8 @@ export class NativeMcpService {
         allowedNewPaths: Object.freeze([]),
         orientation,
         semanticOrientation,
-        traceHandoff: null
+        traceHandoff: null,
+        analysisHandoff: null
       });
       this.#bindings.set(run.runId, binding);
 
@@ -450,6 +524,7 @@ export class NativeMcpService {
         semantic_coverage: semanticOrientation.coverage,
         semantic_bootstrap: Object.freeze({ status: "complete" as const, bootstrap_id: null, current_chunk: null }),
         trace_handoff: null,
+        analysis_handoff: null,
         corridor: base.corridor ?? null,
         diagnostics: projectDiagnosticMaps(base.diagnostics, base.corridor),
         contract_map: projectContractMap(base.contractMap, base.corridor.objective, base.corridor.corridor),
@@ -489,6 +564,7 @@ export class NativeMcpService {
       orientation,
       semanticOrientation,
       traceHandoff: traceEvidence ?? null
+      ,analysisHandoff: analysisEvidence ?? null
     });
     this.#bindings.set(run.runId, binding);
     if (!planning.corridor.certified || !planning.context || planning.context.segments.length === 0 || architecturePlan?.gaps.length) {
@@ -524,6 +600,7 @@ export class NativeMcpService {
       semantic_coverage: binding?.semanticOrientation.coverage ?? null,
       semantic_bootstrap: Object.freeze({ status: "complete" as const, bootstrap_id: null, current_chunk: null }),
       trace_handoff: projectTraceHandoff(binding?.traceHandoff),
+      analysis_handoff: projectAnalysisHandoff(binding?.analysisHandoff),
       corridor: planning?.corridor ?? null,
       diagnostics: planning ? projectDiagnosticMaps(planning.diagnostics, planning.corridor) : [],
       contract_map: planning ? projectContractMap(planning.contractMap, planning.corridor.objective, planning.corridor.corridor) : null,
@@ -662,7 +739,10 @@ export class NativeMcpService {
       permitted_next_action: run.stateRecord.permitted_next_action,
       architecture_plan: binding?.architecturePlan ?? null,
       trace_handoff: projectTraceHandoff(binding?.traceHandoff),
-      analysis: run.artifacts.trace
+      analysis_handoff: projectAnalysisHandoff(binding?.analysisHandoff),
+      analysis: run.artifacts.dataflowSlice
+        ? Object.freeze({ kind: "dataflow-slice" as const, result: projectDataflowSlice(run.artifacts.dataflowSlice) })
+        : run.artifacts.trace
         ? Object.freeze({ kind: "trace" as const, result: run.artifacts.trace })
         : null,
       semantic_atlas: binding?.semanticOrientation.atlas ?? null,
