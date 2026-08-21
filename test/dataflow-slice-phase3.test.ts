@@ -47,9 +47,16 @@ async function createSlice(service: NativeMcpService): Promise<any> {
 test("Dataflow Slice is persisted as an authoritative bounded analysis run", async () => {
   const service = new NativeMcpService(new DataflowRepository(), options());
   const slice = await createSlice(service);
-  assert.equal(slice.context_available, false);
+  assert.equal(slice.context_available, true);
+  assert.ok(slice.context_segment_count > 0);
   assert.equal(slice.permitted_next_action, "create_normal_plan_with_analysis_handoff");
-  assert.throws(() => service.context({ run_id: slice.run_id }), /Context is available only for READY runs/);
+  const context: any = service.context({ run_id: slice.run_id });
+  assert.equal(context.authority, "read-only-analysis-context");
+  assert.equal(context.mode, "index");
+  assert.ok(context.segments.length > 0);
+  const segment: any = service.context({ run_id: slice.run_id, segment_id: context.segments[0].id });
+  assert.equal(segment.authority, "read-only-analysis-context");
+  assert.equal(segment.mode, "segment");
 
   const result: any = service.result({ run_id: slice.run_id });
   assert.equal(result.analysis.kind, "dataflow-slice");
