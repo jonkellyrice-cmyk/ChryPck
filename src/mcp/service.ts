@@ -37,7 +37,8 @@ import {
   projectContextIndexSegment,
   projectContextSourceSegment,
   projectDiagnosticMaps,
-  projectNativeContractMaps
+  projectNativeContractMaps,
+  projectCompactResponse
 } from "./response-projection.js";
 import { projectContractMap } from "./contract-map-projection.js";
 import { projectEffectRuntimeAtlas } from "./effect-runtime-projection.js";
@@ -54,6 +55,10 @@ export interface NativeMcpServiceOptions {
   readonly semanticCacheEntries?: number;
   readonly semanticAtlasCache?: SemanticAtlasCache;
   readonly semanticBootstrapStore?: SemanticBootstrapSessionStore;
+}
+
+function responseForMode(responseMode: "compact" | "full" | undefined, response: Readonly<Record<string, any>>) {
+  return responseMode === "compact" ? projectCompactResponse(response) : response;
 }
 
 interface RunBinding {
@@ -233,9 +238,10 @@ export class NativeMcpService {
     readonly currentChunk: SemanticBootstrapChunk;
     readonly semanticOrientation: SemanticOrientation | null;
     readonly restartReason?: string;
+    readonly responseMode?: "compact" | "full";
   }) {
     const run = this.orchestrator.store.require(args.runId);
-    return Object.freeze({
+    return responseForMode(args.responseMode, Object.freeze({
       run_id: run.runId,
       state: run.state,
       repository: run.repository,
@@ -267,7 +273,7 @@ export class NativeMcpService {
       context_segment_count: 0,
       context_index: Object.freeze([]),
       permitted_next_action: "submit_objective_semantic_expansion_via_chrypck_plan_then_resume_repository_work"
-    });
+    }));
   }
 
   async plan(input: PlanInput) {
@@ -294,7 +300,8 @@ export class NativeMcpService {
         binding?.targetRef ?? targetRef,
         binding?.baseCommitSha ?? run.requestCommitSha ?? "",
         binding?.profileId ?? profile.id,
-        binding?.architecturePlan ?? null
+        binding?.architecturePlan ?? null,
+        input.response_mode
       );
     }
 
@@ -325,7 +332,7 @@ export class NativeMcpService {
           return this.semanticBootstrapResult({
             runId: run.runId, targetRef, profileId: profile.id, baseCommitSha: snapshot.commitSha,
             orientation, semanticOrientation, regionCount: semanticPreparation.packets.length,
-            chunkCount: advanced.currentChunk.chunk_count, currentChunk: advanced.currentChunk
+            chunkCount: advanced.currentChunk.chunk_count, currentChunk: advanced.currentChunk, responseMode: input.response_mode
           });
         }
         semanticOrientation = mergeSemanticOrientation({
@@ -343,6 +350,7 @@ export class NativeMcpService {
           runId: run.runId, targetRef, profileId: profile.id, baseCommitSha: snapshot.commitSha,
           orientation, semanticOrientation, regionCount: semanticPreparation.packets.length,
           chunkCount: restarted.chunkCount, currentChunk: restarted.currentChunk,
+          responseMode: input.response_mode,
           restartReason: "semantic_expansion_session_expired_and_was_restarted"
         });
       }
@@ -353,7 +361,7 @@ export class NativeMcpService {
         return this.semanticBootstrapResult({
           runId: run.runId, targetRef, profileId: profile.id, baseCommitSha: snapshot.commitSha,
           orientation, semanticOrientation, regionCount: semanticPreparation.packets.length,
-          chunkCount: started.chunkCount, currentChunk: started.currentChunk
+          chunkCount: started.chunkCount, currentChunk: started.currentChunk, responseMode: input.response_mode
         });
       }
     }
@@ -442,7 +450,7 @@ export class NativeMcpService {
       this.#bindings.set(run.runId, binding);
       if (sliceResult.status === "UNABLE_TO_CERTIFY" || sliceResult.status === "LIMITS_EXCEEDED") this.orchestrator.transition(run.runId, "CAPABILITY_GAP", "native_dataflow_slice_gap");
       else this.orchestrator.transition(run.runId, "SUCCEEDED", "native_dataflow_slice_complete");
-      return Object.freeze({
+      return responseForMode(input.response_mode, Object.freeze({
         run_id: run.runId, state: run.state, repository: run.repository, project_profile: profile.id,
         base_ref: targetRef, base_commit_sha: snapshot.commitSha, scope_lock_fingerprint: run.scopeLock.fingerprint,
         repository_atlas: orientation.atlas, coverage: orientation.coverage, semantic_atlas: semanticOrientation.atlas,
@@ -452,10 +460,13 @@ export class NativeMcpService {
         contract_map: projectContractMap(base.contractMap, base.corridor.objective, base.corridor.corridor),
         effect_runtime_atlas: projectEffectRuntimeAtlas(base.effectRuntimeAtlas, base.corridor.objective, base.corridor.corridor),
         native_contracts: projectNativeContractMaps(base.nativeContracts, base.corridor),
-        architecture_plan: null, architecture_requires_review: false, context_available: false, context_segment_count: 0, context_index: Object.freeze([]),
+        architecture_plan: null, architecture_requires_review: false,
+        context_available: Boolean(base.context?.segments.length),
+        context_segment_count: base.context?.segments.length ?? 0,
+        context_index: Object.freeze(base.context?.segments.map(projectContextIndexSegment) ?? []),
         analysis: Object.freeze({ kind: "dataflow-slice" as const, result: projectDataflowSlice(sliceResult) }),
         permitted_next_action: sliceResult.status === "CERTIFIED" || sliceResult.status === "PARTIAL" ? "create_normal_plan_with_analysis_handoff" : "chrypck_result"
-      });
+      }));
     }
 
     if (input.analysis?.kind === "trace") {
@@ -506,7 +517,7 @@ export class NativeMcpService {
         this.orchestrator.transition(run.runId, "SUCCEEDED", "native_trace_complete");
       }
 
-      return Object.freeze({
+      return responseForMode(input.response_mode, Object.freeze({
         run_id: run.runId,
         state: run.state,
         repository: run.repository,
@@ -528,14 +539,12 @@ export class NativeMcpService {
         native_contracts: projectNativeContractMaps(base.nativeContracts, base.corridor),
         architecture_plan: null,
         architecture_requires_review: false,
-        context_available: false,
-        context_segment_count: 0,
-        context_index: Object.freeze([]),
+        context_available: Boolean(base.context?.segments.length),
+        context_segment_count: base.context?.segments.length ?? 0,
+        context_index: Object.freeze(base.context?.segments.map(projectContextIndexSegment) ?? []),
         analysis: Object.freeze({ kind: "trace" as const, result: traceResult }),
-        permitted_next_action: traceResult.status === "UNABLE_TO_CERTIFY"
-          ? "chrypck_result"
-          : "create_normal_plan_with_trace_handoff"
-      });
+        permitted_next_action: traceResult.status === "UNABLE_TO_CERTIFY" ? "chrypck_result" : "create_normal_plan_with_trace_handoff"
+      }));
     }
 
     const architecturePlan = input.architecture ? planArchitecture(model, input.architecture) : null;
@@ -566,7 +575,7 @@ export class NativeMcpService {
     if (!planning.corridor.certified || !planning.context || planning.context.segments.length === 0 || architecturePlan?.gaps.length) {
       this.orchestrator.transition(run.runId, "CAPABILITY_GAP", "native_plan_gap");
     }
-    return this.planResult(run.runId, targetRef, snapshot.commitSha, profile.id, architecturePlan);
+    return this.planResult(run.runId, targetRef, snapshot.commitSha, profile.id, architecturePlan, input.response_mode);
   }
 
   private planResult(
@@ -574,7 +583,8 @@ export class NativeMcpService {
     targetRef: string,
     baseCommitSha: string,
     profileId: string,
-    architecturePlan: ArchitecturePlan | null
+    architecturePlan: ArchitecturePlan | null,
+    responseMode?: "compact" | "full"
   ) {
     const run = this.orchestrator.store.require(runId);
     const binding = this.#bindings.get(runId);
@@ -582,7 +592,7 @@ export class NativeMcpService {
     const contextIndex = planning?.context
       ? planning.context.segments.map(projectContextIndexSegment)
       : [];
-    return Object.freeze({
+    return responseForMode(responseMode, Object.freeze({
       run_id: run.runId,
       state: run.state,
       repository: run.repository,
@@ -608,12 +618,14 @@ export class NativeMcpService {
       context_segment_count: contextIndex.length,
       context_index: Object.freeze(contextIndex),
       permitted_next_action: run.state === "READY" ? "chrypck_context_or_execute" : "chrypck_result"
-    });
+    }));
   }
 
   context(input: ContextInput) {
     const run = this.orchestrator.store.require(input.run_id);
-    if (run.state !== "READY") throw new Error(`Context is available only for READY runs; run is ${run.state}.`);
+    const focusedAnalysis = Boolean(run.artifacts.trace || run.artifacts.dataflowSlice);
+    const contextReadable = run.state === "READY" || (focusedAnalysis && (run.state === "SUCCEEDED" || run.state === "CAPABILITY_GAP"));
+    if (!contextReadable) throw new Error(`Context is unavailable for run state ${run.state}. READY normal plans and terminal focused-analysis runs may expand certified read-only grants.`);
     const context = run.artifacts.planning?.context;
     if (!context || context.segments.length === 0) throw new Error("Run has no certified Context Pack expansion. Complete any required objective-local semantic expansion and normal planning first.");
 
@@ -623,6 +635,7 @@ export class NativeMcpService {
         repository: run.repository,
         base_commit_sha: context.commitSha,
         certified: true,
+        authority: focusedAnalysis ? "read-only-analysis-context" : "normal-plan-context",
         mode: "index",
         segments: Object.freeze(context.segments.map(projectContextIndexSegment)),
         omissions: context.omissions,
@@ -638,6 +651,7 @@ export class NativeMcpService {
         repository: run.repository,
         base_commit_sha: context.commitSha,
         certified: true,
+        authority: focusedAnalysis ? "read-only-analysis-context" : "normal-plan-context",
         mode: "segment",
         segments: Object.freeze([projectContextSourceSegment(segment)]),
         omissions: context.omissions,
@@ -653,6 +667,7 @@ export class NativeMcpService {
       repository: run.repository,
       base_commit_sha: context.commitSha,
       certified: true,
+      authority: focusedAnalysis ? "read-only-analysis-context" : "normal-plan-context",
       mode: "continuation",
       segments: Object.freeze([projectContextContinuation(continuation)]),
       omissions: context.omissions,
@@ -722,7 +737,7 @@ export class NativeMcpService {
   result(input: ResultInput) {
     const run = this.orchestrator.store.require(input.run_id);
     const binding = this.#bindings.get(run.runId);
-    return Object.freeze({
+    return responseForMode(input.response_mode, Object.freeze({
       run_id: run.runId,
       repository: run.repository,
       project_profile: binding?.profileId ?? this.profileFor(run.repository).id,
@@ -756,6 +771,6 @@ export class NativeMcpService {
       artifacts: summarizeRunArtifacts(run.artifacts),
       failure: run.artifacts.failure,
       telemetry: run.telemetry.snapshot()
-    });
+    }));
   }
 }

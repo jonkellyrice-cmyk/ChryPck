@@ -139,7 +139,8 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
         ]).optional().describe("Optional read-only focused analysis: Trace for one causal runtime route, or Dataflow Slice for value provenance/influence."),
         trace_handoff: traceHandoffSchema.optional(),
         analysis_handoff: analysisHandoffSchema.optional(),
-        semantic_bootstrap: semanticBootstrapSchema.optional()
+        semantic_bootstrap: semanticBootstrapSchema.optional(),
+        response_mode: z.enum(["compact", "full"]).default("compact").describe("Compact returns a small control envelope plus bounded context grants; full is reserved for explicit diagnostics.")
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
@@ -150,8 +151,8 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_context",
     {
       title: "Read Certified Context",
-      description: "Read server-certified Context Pack evidence for an existing READY normal-plan run. Its bounded index includes Contract Map roles and Effect / Runtime Atlas roles, effect families, reconciliation and verification targets. Focused-analysis runs expose no Context Pack source; use analysis_handoff to create a distinct normal plan. trace_handoff remains compatible for Trace clients. Never accepts arbitrary repository paths.",
-      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by a normal chrypck_plan."), segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the certified index.") }),
+      description: "Expand one server-issued, bounded read-only Context Pack grant. READY normal plans and terminal focused-analysis runs may expose their certified objective-local context. The index never grants arbitrary paths; source and continuation calls reveal only the selected certified segment and do not widen mutation authority.",
+      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."), segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the bounded grant index.") }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async input => toolBoundary(() => nativeService.context(input))
@@ -173,7 +174,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     {
       title: "Read Governed Result",
       description: "Read authoritative bounded run state. Normal plans expose deterministic evidence; Trace and Dataflow Slice runs retain their artifacts/certificates; execution results include propagation, validation targets, telemetry and publication state.",
-      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan." ) }),
+      inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."), response_mode: z.enum(["compact", "full"]).default("compact").describe("Compact omits persisted heavyweight artifacts and returns task state, evidence handles and next action.") }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async input => toolBoundary(() => nativeService.result(input))

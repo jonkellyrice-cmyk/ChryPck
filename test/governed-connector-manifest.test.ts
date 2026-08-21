@@ -11,7 +11,7 @@ import { CHRYPCK_TOOL_NAMES } from "../src/mcp/tools.js";
 test("governed connector manifest exactly matches the public MCP tool surface", () => {
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.schema, GOVERNED_CONNECTOR_MANIFEST_SCHEMA);
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.schemaVersion, GOVERNED_CONNECTOR_MANIFEST_VERSION);
-  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 9);
+  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 10);
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.id, "chrypck");
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.selectionMode, "workflow-bundle");
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.transport.path, "/mcp");

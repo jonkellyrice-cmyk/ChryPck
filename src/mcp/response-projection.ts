@@ -280,3 +280,78 @@ export function projectBoundedEventTraceResult(trace: any): Readonly<Record<stri
     certificate: trace.certificate ?? null
   });
 }
+
+
+const MAX_CONTEXT_GRANTS = 8;
+
+export function projectContextGrant(segment: any): Readonly<Record<string, unknown>> {
+  const symbols = Array.isArray(segment?.symbols) ? segment.symbols : [];
+  return Object.freeze({
+    segment_id: segment?.id ?? segment?.segment_id ?? null,
+    path: segment?.path ?? null,
+    symbols: Object.freeze(symbols.slice(0, 6).map((symbol: any) => Object.freeze({
+      name: symbol?.name ?? null,
+      kind: symbol?.kind ?? null,
+      line_start: symbol?.lineStart ?? symbol?.line_start ?? null,
+      line_end: symbol?.lineEnd ?? symbol?.line_end ?? null,
+      expandable: Boolean(symbol?.expandable ?? symbol?.continuationId)
+    }))),
+    evidence: Object.freeze((Array.isArray(segment?.evidence) ? segment.evidence : []).slice(0, 4))
+  });
+}
+
+/**
+ * Converts a heavyweight persisted response into the small control envelope that
+ * should be carried through an agent loop. Full artifacts stay addressable by
+ * run_id; exact source is disclosed separately through chrypck_context grants.
+ */
+export function projectCompactResponse(response: Readonly<Record<string, any>>): Readonly<Record<string, unknown>> {
+  const contextIndex = Array.isArray(response.context_index) ? response.context_index : [];
+  const corridor = asRecord(response.corridor);
+  const semanticBootstrap = asRecord(response.semantic_bootstrap);
+  const artifactSummary = asRecord(response.artifacts);
+  return Object.freeze({
+    schema_version: 1,
+    response_mode: "compact",
+    run_id: response.run_id ?? null,
+    state: response.state ?? null,
+    terminal: response.terminal ?? null,
+    repository: response.repository ?? null,
+    project_profile: response.project_profile ?? null,
+    base_ref: response.base_ref ?? null,
+    base_commit_sha: response.base_commit_sha ?? null,
+    result_commit_sha: response.result_commit_sha ?? null,
+    scope_lock_fingerprint: response.scope_lock_fingerprint ?? null,
+    semantic_bootstrap: semanticBootstrap
+      ? Object.freeze({
+        status: semanticBootstrap.status ?? null,
+        bootstrap_id: semanticBootstrap.bootstrap_id ?? null,
+        current_chunk: semanticBootstrap.status === "required" ? semanticBootstrap.current_chunk ?? null : null
+      })
+      : null,
+    semantic_coverage: response.semantic_coverage
+      ? compactValue(response.semantic_coverage, 1)
+      : null,
+    analysis: response.analysis ?? null,
+    analysis_handoff: response.analysis_handoff ?? null,
+    trace_handoff: response.trace_handoff ?? null,
+    corridor: corridor
+      ? Object.freeze({
+        id: corridor.id ?? corridor.corridorId ?? null,
+        certified: corridor.certified ?? false,
+        objective: corridor.objective ?? null,
+        authorized_paths: corridor.corridor ?? corridor.authorizedPaths ?? []
+      })
+      : null,
+    context_available: Boolean(response.context_available ?? contextIndex.length > 0),
+    context_segment_count: response.context_segment_count ?? contextIndex.length,
+    context_grants: Object.freeze(contextIndex.slice(0, MAX_CONTEXT_GRANTS).map(projectContextGrant)),
+    artifact_handles: artifactSummary
+      ? Object.freeze({ run_id: response.run_id ?? null, summary: compactValue(artifactSummary, 1) })
+      : Object.freeze({ run_id: response.run_id ?? null }),
+    failure: response.failure ? compactValue(response.failure, 1) : null,
+    permitted_next_action: contextIndex.length > 0 && response.analysis
+      ? `expand_one_context_grant_then_${response.permitted_next_action ?? "resume"}`
+      : response.permitted_next_action ?? null
+  });
+}

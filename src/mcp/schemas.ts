@@ -30,6 +30,7 @@ export interface DataflowSliceAnalysisInput {
 }
 
 export type AnalysisInput = TraceAnalysisInput | DataflowSliceAnalysisInput;
+export type ResponseMode = "compact" | "full";
 
 export interface PlanInput {
   readonly repository:string;
@@ -40,9 +41,11 @@ export interface PlanInput {
   readonly trace_handoff?:TraceHandoffReference;
   readonly analysis_handoff?:AnalysisHandoffReference;
   readonly semantic_bootstrap?:SemanticBootstrapSubmissionInput;
+  /** Compact is the governed default: return handles and bounded grants, not every persisted artifact. */
+  readonly response_mode?:ResponseMode;
 }
 export interface ContextInput{readonly run_id:string;readonly segment_id?:string}
 export type ExecuteInput =
   | Readonly<{ run_id:string; authoring_intent:Readonly<{id:string;objective:string;edits:readonly AuthoringEdit[]}>; commit_message?:string; architecture_approval?:never }>
   | Readonly<{ run_id:string; architecture_approval:Readonly<{plan_id:string}>; commit_message?:string; authoring_intent?:never }>;
-export interface ResultInput{readonly run_id:string}
+export interface ResultInput{readonly run_id:string;readonly response_mode?:ResponseMode}
