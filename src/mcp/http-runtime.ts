@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { loadConfig, type ChryPckConfig } from "../config.js";
@@ -117,9 +117,28 @@ function normalizeError(error: unknown): Record<string, unknown> {
   return { code: "CHRYPCK_ERROR", message: error instanceof Error ? error.message : String(error) };
 }
 
-async function toolBoundary<T>(operation: () => Promise<T> | T) {
-  try { return jsonToolResult(await operation()); }
-  catch (error) { return jsonToolResult(normalizeError(error), true); }
+async function toolBoundary<T>(tool: string, input: unknown, operation: () => Promise<T> | T) {
+  const started = Date.now();
+  const inputRecord = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const objective = typeof inputRecord.objective === "string" ? inputRecord.objective : "";
+  const metadata = {
+    event: "chrypck.tool_call",
+    tool,
+    run_id: typeof inputRecord.run_id === "string" ? inputRecord.run_id : null,
+    repository: typeof inputRecord.repository === "string" ? inputRecord.repository : null,
+    objective_fingerprint: objective ? createHash("sha256").update(objective).digest("hex").slice(0, 16) : null
+  };
+  try {
+    const value = await operation();
+    const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+    console.info(JSON.stringify({ ...metadata, outcome: "success", duration_ms: Date.now() - started, state: record.state ?? null, permitted_next_action: record.permitted_next_action ?? null, progress_fingerprint: record.progress_fingerprint ?? null }));
+    return jsonToolResult(value);
+  }
+  catch (error) {
+    const normalized = normalizeError(error);
+    console.error(JSON.stringify({ ...metadata, outcome: "error", duration_ms: Date.now() - started, error_code: normalized.code ?? "CHRYPCK_ERROR" }));
+    return jsonToolResult(normalized, true);
+  }
 }
 
 export function registerChryPckTools(server: McpServer, nativeService: NativeMcpService): void {
@@ -144,7 +163,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
-    async input => toolBoundary(() => nativeService.plan({ ...input, repository: resolveRepositorySlug(input.repository) }))
+    async input => toolBoundary("chrypck_plan", input, () => nativeService.plan({ ...input, repository: resolveRepositorySlug(input.repository) }))
   );
 
   server.registerTool(
@@ -155,7 +174,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
       inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."), segment_id: z.string().min(1).optional().describe("Optional server-issued Context Pack segment or continuation identifier. Omit to read the bounded grant index.") }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
-    async input => toolBoundary(() => nativeService.context(input))
+    async input => toolBoundary("chrypck_context", input, () => nativeService.context(input))
   );
 
   server.registerTool(
@@ -166,7 +185,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
       inputSchema: executeSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
     },
-    async input => toolBoundary(() => nativeService.execute(input))
+    async input => toolBoundary("chrypck_execute", input, () => nativeService.execute(input))
   );
 
   server.registerTool(
@@ -177,7 +196,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
       inputSchema: z.object({ run_id: z.string().min(1).describe("Run identifier previously issued by chrypck_plan."), response_mode: z.enum(["compact", "full"]).default("compact").describe("Compact omits persisted heavyweight artifacts and returns task state, evidence handles and next action.") }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
-    async input => toolBoundary(() => nativeService.result(input))
+    async input => toolBoundary("chrypck_result", input, () => nativeService.result(input))
   );
 }
 
