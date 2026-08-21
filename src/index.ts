@@ -12,6 +12,7 @@ export * from "./repository/model.js";
 export * from "./repository/index.js";
 export * from "./semantic/types.js";
 export * from "./semantic/semantic-atlas.js";
+export * from "./semantic/expansion.js";
 export * from "./analysis/diagnostic-runner.js";
 export * from "./planning/planning-runner.js";
 export * from "./planning/change-propagation.js";

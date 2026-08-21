@@ -21,8 +21,8 @@ function cacheKey(key: SemanticAtlasCacheKey): string {
 function withCacheHit(orientation: SemanticOrientation, cacheHit: boolean): SemanticOrientation {
   const coverage: SemanticCoverageLedger = Object.freeze({
     ...orientation.coverage,
-    bootstrap_required: cacheHit ? false : orientation.coverage.bootstrap_required,
-    bootstrap_complete: true,
+    bootstrap_required: false,
+    bootstrap_complete: orientation.coverage.bootstrap_complete,
     cache_hit: cacheHit
   });
   const atlas: SemanticAtlas = orientation.atlas;

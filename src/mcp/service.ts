@@ -29,6 +29,7 @@ import {
 } from "../semantic/bootstrap.js";
 import { DEFAULT_SEMANTIC_MAX_REGIONS } from "../semantic/region-builder.js";
 import { prepareSemanticAtlas } from "../semantic/semantic-atlas.js";
+import { mergeSemanticOrientation, pendingSemanticExpansion, scopeSemanticOrientation } from "../semantic/expansion.js";
 import type { SemanticBootstrapChunk, SemanticCoverageLedger, SemanticOrientation } from "../semantic/types.js";
 import type { PlanInput, ContextInput, ExecuteInput, ResultInput } from "./schemas.js";
 import {
@@ -168,6 +169,12 @@ function pendingSemanticCoverage(regionCount: number, chunkCount: number): Seman
     bootstrap_complete: false,
     bootstrap_chunk_count: chunkCount,
     cache_hit: false
+    ,global_mapped_regions: 0
+    ,global_unmapped_regions: regionCount
+    ,objective_region_count: 1
+    ,objective_mapped_regions: 0
+    ,objective_sufficient: false
+    ,active_frontier_region_ids: Object.freeze([])
   });
 }
 
@@ -224,6 +231,7 @@ export class NativeMcpService {
     readonly regionCount: number;
     readonly chunkCount: number;
     readonly currentChunk: SemanticBootstrapChunk;
+    readonly semanticOrientation: SemanticOrientation | null;
     readonly restartReason?: string;
   }) {
     const run = this.orchestrator.store.require(args.runId);
@@ -237,10 +245,11 @@ export class NativeMcpService {
       scope_lock_fingerprint: run.scopeLock.fingerprint,
       repository_atlas: args.orientation.atlas,
       coverage: args.orientation.coverage,
-      semantic_atlas: null,
-      semantic_coverage: pendingSemanticCoverage(args.regionCount, args.chunkCount),
+      semantic_atlas: args.semanticOrientation?.atlas ?? null,
+      semantic_coverage: args.semanticOrientation?.coverage ?? Object.freeze({ ...pendingSemanticCoverage(args.regionCount, args.chunkCount), active_frontier_region_ids: Object.freeze(args.currentChunk.regions.map(region => region.id)) }),
       semantic_bootstrap: Object.freeze({
         status: "required" as const,
+        mode: "lazy-objective-expansion" as const,
         ...(args.restartReason ? { restart_reason: args.restartReason } : {}),
         bootstrap_id: args.currentChunk.bootstrap_id,
         current_chunk: args.currentChunk
@@ -257,7 +266,7 @@ export class NativeMcpService {
       context_available: false,
       context_segment_count: 0,
       context_index: Object.freeze([]),
-      permitted_next_action: "submit_semantic_bootstrap_chunk_via_chrypck_plan_before_repository_work"
+      permitted_next_action: "submit_objective_semantic_expansion_via_chrypck_plan_then_resume_repository_work"
     });
   }
 
@@ -300,72 +309,59 @@ export class NativeMcpService {
       projectProfile: profile.id
     });
     let semanticOrientation = await this.#semanticCache.get(semanticKey);
-    if (!semanticOrientation) {
-      const semanticPreparation = prepareSemanticAtlas(model, {
-        maxRegions: this.options.semanticMaxRegions ?? DEFAULT_SEMANTIC_MAX_REGIONS,
-        nativeContracts: profile.nativeContractProvider?.(model) ?? []
-      });
+    const semanticPreparation = prepareSemanticAtlas(model, {
+      maxRegions: this.options.semanticMaxRegions ?? DEFAULT_SEMANTIC_MAX_REGIONS,
+      nativeContracts: profile.nativeContractProvider?.(model) ?? []
+    });
 
-      if (input.semantic_bootstrap) {
-        try {
-          const advanced = await this.#semanticBootstrap.advance(input.semantic_bootstrap, {
-            repository,
-            commitSha: snapshot.commitSha,
-            projectProfile: profile.id
-          });
-          if (!advanced.complete) {
-            return this.semanticBootstrapResult({
-              runId: run.runId,
-              targetRef,
-              profileId: profile.id,
-              baseCommitSha: snapshot.commitSha,
-              orientation,
-              regionCount: semanticPreparation.packets.length,
-              chunkCount: advanced.currentChunk.chunk_count,
-              currentChunk: advanced.currentChunk
-            });
-          }
-          semanticOrientation = advanced.orientation;
-          await this.#semanticCache.put(semanticKey, semanticOrientation);
-        } catch (error) {
-          if (!(error instanceof Error) || !/Unknown or expired semantic bootstrap/.test(error.message)) throw error;
-          const restarted = await this.#semanticBootstrap.begin({
-            repository,
-            commitSha: snapshot.commitSha,
-            projectProfile: profile.id,
-            packets: semanticPreparation.packets
-          });
-          return this.semanticBootstrapResult({
-            runId: run.runId,
-            targetRef,
-            profileId: profile.id,
-            baseCommitSha: snapshot.commitSha,
-            orientation,
-            regionCount: semanticPreparation.packets.length,
-            chunkCount: restarted.chunkCount,
-            currentChunk: restarted.currentChunk,
-            restartReason: "semantic_bootstrap_session_expired_and_was_restarted"
-          });
-        }
-      } else {
-        const started = await this.#semanticBootstrap.begin({
+    if (input.semantic_bootstrap) {
+      try {
+        const advanced = await this.#semanticBootstrap.advance(input.semantic_bootstrap, {
           repository,
           commitSha: snapshot.commitSha,
-          projectProfile: profile.id,
-          packets: semanticPreparation.packets
+          projectProfile: profile.id
         });
+        if (!advanced.complete) {
+          return this.semanticBootstrapResult({
+            runId: run.runId, targetRef, profileId: profile.id, baseCommitSha: snapshot.commitSha,
+            orientation, semanticOrientation, regionCount: semanticPreparation.packets.length,
+            chunkCount: advanced.currentChunk.chunk_count, currentChunk: advanced.currentChunk
+          });
+        }
+        semanticOrientation = mergeSemanticOrientation({
+          repository, commitSha: snapshot.commitSha, projectProfile: profile.id,
+          packets: semanticPreparation.packets, objective: input.objective.trim(),
+          existing: semanticOrientation, expansion: advanced.orientation
+        });
+        await this.#semanticCache.put(semanticKey, semanticOrientation);
+      } catch (error) {
+        if (!(error instanceof Error) || !/Unknown or expired semantic bootstrap/.test(error.message)) throw error;
+        const packets = pendingSemanticExpansion(semanticPreparation.packets, input.objective, semanticOrientation);
+        if (!packets.length) throw error;
+        const restarted = await this.#semanticBootstrap.begin({ repository, commitSha: snapshot.commitSha, projectProfile: profile.id, packets });
         return this.semanticBootstrapResult({
-          runId: run.runId,
-          targetRef,
-          profileId: profile.id,
-          baseCommitSha: snapshot.commitSha,
-          orientation,
-          regionCount: semanticPreparation.packets.length,
-          chunkCount: started.chunkCount,
-          currentChunk: started.currentChunk
+          runId: run.runId, targetRef, profileId: profile.id, baseCommitSha: snapshot.commitSha,
+          orientation, semanticOrientation, regionCount: semanticPreparation.packets.length,
+          chunkCount: restarted.chunkCount, currentChunk: restarted.currentChunk,
+          restartReason: "semantic_expansion_session_expired_and_was_restarted"
+        });
+      }
+    } else {
+      const packets = pendingSemanticExpansion(semanticPreparation.packets, input.objective, semanticOrientation);
+      if (packets.length) {
+        const started = await this.#semanticBootstrap.begin({ repository, commitSha: snapshot.commitSha, projectProfile: profile.id, packets });
+        return this.semanticBootstrapResult({
+          runId: run.runId, targetRef, profileId: profile.id, baseCommitSha: snapshot.commitSha,
+          orientation, semanticOrientation, regionCount: semanticPreparation.packets.length,
+          chunkCount: started.chunkCount, currentChunk: started.currentChunk
         });
       }
     }
+    if (!semanticOrientation) throw new Error("Objective-local semantic expansion did not produce a usable Semantic Atlas region.");
+    semanticOrientation = scopeSemanticOrientation({
+      repository, commitSha: snapshot.commitSha, projectProfile: profile.id,
+      packets: semanticPreparation.packets, objective: input.objective.trim(), orientation: semanticOrientation
+    });
 
     let traceEvidence: CertifiedTracePlanningEvidence | undefined;
     let analysisEvidence: CertifiedAnalysisPlanningEvidence | undefined;
@@ -619,7 +615,7 @@ export class NativeMcpService {
     const run = this.orchestrator.store.require(input.run_id);
     if (run.state !== "READY") throw new Error(`Context is available only for READY runs; run is ${run.state}.`);
     const context = run.artifacts.planning?.context;
-    if (!context || context.segments.length === 0) throw new Error("Run has no certified Context Pack expansion. Complete any required Semantic Atlas bootstrap and normal planning first.");
+    if (!context || context.segments.length === 0) throw new Error("Run has no certified Context Pack expansion. Complete any required objective-local semantic expansion and normal planning first.");
 
     if (!input.segment_id) {
       return Object.freeze({
@@ -671,7 +667,7 @@ export class NativeMcpService {
     const run = this.orchestrator.store.require(input.run_id);
     if (run.state !== "READY") throw new Error(`Execution requires READY state; run is ${run.state}.`);
     const binding = this.#bindings.get(run.runId);
-    if (!binding) throw new Error("Run is missing its repository/ref binding. Complete any required Semantic Atlas bootstrap and normal planning before execution.");
+    if (!binding) throw new Error("Run is missing its repository/ref binding. Complete any required objective-local semantic expansion and normal planning before execution.");
     const profile = this.options.projectProfiles.get(binding.profileId);
     if (!profile) throw new Error(`Run references an unavailable project profile: ${binding.profileId}`);
 

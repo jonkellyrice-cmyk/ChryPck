@@ -84,7 +84,7 @@ test("native MCP surface keeps four distinct agent-facing operations", () => {
   assert.equal(new Set(descriptions).size, CHRYPCK_TOOLS.length);
 
   assert.match(CHRYPCK_TOOLS[0]!.description, /Start governed repository work/);
-  assert.match(CHRYPCK_TOOLS[0]!.description, /Semantic Atlas bootstrap/);
+  assert.match(CHRYPCK_TOOLS[0]!.description, /lazily requests at most one objective-local semantic region/);
   assert.match(CHRYPCK_TOOLS[0]!.description, /trace_handoff/);
   assert.match(CHRYPCK_TOOLS[1]!.description, /server-certified Context Pack/);
   assert.match(CHRYPCK_TOOLS[1]!.description, /arbitrary paths are never accepted/i);
@@ -94,7 +94,7 @@ test("native MCP surface keeps four distinct agent-facing operations", () => {
   assert.match(CHRYPCK_TOOLS[3]!.description, /Dataflow Slice/);
 });
 
-test("first uncached plan blocks ordinary work until the host LLM completes semantic bootstrap", async () => {
+test("first uncached plan requests only one objective-local semantic expansion", async () => {
   const service = new NativeMcpService(new MemoryRepository(), serviceOptions());
   const first: any = await service.plan({ repository: "owner/repo", objective: "provider", base_ref: "main" });
   assert.equal(first.semantic_bootstrap.status, "required");
@@ -104,8 +104,9 @@ test("first uncached plan blocks ordinary work until the host LLM completes sema
   assert.equal(first.trace_handoff, null);
   assert.equal(first.context_available, false);
   assert.equal(first.corridor, null);
-  assert.match(first.permitted_next_action, /semantic_bootstrap/);
-  assert.ok(first.semantic_bootstrap.current_chunk.regions.length >= 1);
+  assert.match(first.permitted_next_action, /semantic_expansion/);
+  assert.equal(first.semantic_bootstrap.mode, "lazy-objective-expansion");
+  assert.equal(first.semantic_bootstrap.current_chunk.regions.length, 1);
 });
 
 test("live native service exposes semantic orientation then bounded plan/context/execute/result semantics", async () => {
@@ -115,9 +116,11 @@ test("live native service exposes semantic orientation then bounded plan/context
   const plan = await completeSemanticBootstrap(service, { repository: "owner/repo", objective: "provider", base_ref: "main" });
   assert.equal(plan.state, "READY");
   assert.equal(plan.semantic_bootstrap.status, "complete");
-  assert.equal(plan.semantic_atlas.complete, true);
+  assert.equal(plan.semantic_atlas.complete, false);
+  assert.equal(plan.semantic_atlas.status, "OBJECTIVE_SUFFICIENT");
   assert.ok(plan.semantic_atlas.region_count >= 1);
-  assert.equal(plan.semantic_coverage.bootstrap_complete, true);
+  assert.equal(plan.semantic_coverage.bootstrap_complete, false);
+  assert.equal(plan.semantic_coverage.objective_sufficient, true);
   assert.equal(plan.contract_map.schema_version, 1);
   assert.ok(plan.contract_map.summary.contract_count >= 1);
   assert.equal(plan.effect_runtime_atlas.schema_version, 1);

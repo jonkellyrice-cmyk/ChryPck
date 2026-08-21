@@ -11,7 +11,7 @@ import { CHRYPCK_TOOL_NAMES } from "../src/mcp/tools.js";
 test("governed connector manifest exactly matches the public MCP tool surface", () => {
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.schema, GOVERNED_CONNECTOR_MANIFEST_SCHEMA);
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.schemaVersion, GOVERNED_CONNECTOR_MANIFEST_VERSION);
-  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 8);
+  assert.equal(GOVERNED_CONNECTOR_MANIFEST_VERSION, 9);
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.id, "chrypck");
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.connector.selectionMode, "workflow-bundle");
   assert.equal(CHRYPCK_GOVERNED_CONNECTOR_MANIFEST.transport.path, "/mcp");
@@ -44,12 +44,13 @@ test("governed connector manifest publishes semantic orientation, focused analys
 
   assert.deepEqual(
     manifest.workflow.phases.map(phase => phase.id),
-    ["semantic-bootstrap", "repository-orientation", "general-analysis", "focused-analysis", "trace-handoff", "certified-context", "cross-cutting-patch", "execute", "verify"],
+    ["semantic-expansion", "repository-orientation", "general-analysis", "focused-analysis", "trace-handoff", "certified-context", "cross-cutting-patch", "execute", "verify"],
   );
   assert.match(manifest.workflow.patchStrategy, /one coherent cross-cutting patch/i);
   assert.match(manifest.workflow.failurePolicy, /do not claim ChryPck is unavailable/i);
-  assert.match(manifest.workflow.phases[0]?.guidance ?? "", /semantic_bootstrap/i);
-  assert.match(manifest.workflow.phases[1]?.guidance ?? "", /semantic_atlas/i);
+  assert.match(manifest.workflow.phases[0]?.guidance ?? "", /lazy-objective-expansion/i);
+  assert.match(manifest.workflow.phases[0]?.guidance ?? "", /at most one bounded region/i);
+  assert.match(manifest.workflow.phases[1]?.guidance ?? "", /OBJECTIVE_SUFFICIENT/i);
   assert.match(manifest.workflow.phases[3]?.guidance ?? "", /exactly one focused mode/i);
   assert.match(manifest.workflow.phases[3]?.guidance ?? "", /Dataflow Slice/i);
   assert.match(manifest.workflow.phases[4]?.guidance ?? "", /trace_handoff/i);

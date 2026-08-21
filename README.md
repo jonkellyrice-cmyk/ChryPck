@@ -15,7 +15,7 @@ exhaustive Repository Model          (internal; not model-visible)
         ↓
 Structural Repository Atlas          (where things are)
         ↓
-Semantic Atlas bootstrap             (what major things are for)
+lazy Semantic Atlas expansion        (what currently relevant things are for)
         ↓
 diagnostic projections/maps          (compressed/lossy relationships)
         ↓
@@ -42,27 +42,27 @@ Model-visible diagnostic surfaces include Structural Repository Atlas, Semantic 
 
 The Effect / Runtime Atlas maps possible behavior across entry points, operations, state access, integration boundaries, terminal effects and observation points. It reports explicit coverage, unresolved links and repository/native reconciliation. Trace consumes this topology to certify one focused causal route. Neither the Atlas nor Trace grants mutation authority: only the current normal plan's independently certified Patch Corridor does so.
 
-## Mandatory first-pass Semantic Atlas bootstrap
+## Lazy, objective-local Semantic Atlas expansion
 
-For an uncached immutable repository commit/profile, the first `chrypck_plan` intentionally stops **before ordinary repository work** and returns:
+ChryPck eagerly builds the inexpensive deterministic Repository Model and Structural Atlas across the immutable repository. It does **not** require the host LLM to semantically interpret the entire repository. When navigation reaches a relevant region that is not yet mapped, `chrypck_plan` returns at most one bounded request:
 
 ```text
 semantic_bootstrap.status = "required"
+semantic_bootstrap.mode = "lazy-objective-expansion"
 semantic_bootstrap.current_chunk = <bounded server-issued metadata packet>
 ```
 
-The connected host LLM itself performs the semantic synthesis; ChryPck does not secretly call a second model provider. The host LLM must:
+The `semantic_bootstrap` field name remains for client compatibility, but its behavior is demand-driven expansion. The connected host LLM:
 
-1. Read every semantic region in the current metadata chunk.
+1. Reads the single objective-local region in the current metadata chunk.
 2. Describe the region's purpose, responsibilities, important non-ownership boundaries, and key flows only where supported by the supplied metadata.
 3. Cite one or more server-issued `evidence_refs` for every semantic claim.
 4. Call `chrypck_plan` again with `semantic_bootstrap { bootstrap_id, chunk_id, interpretations }`.
-5. Repeat chunk by chunk until ChryPck returns `semantic_bootstrap.status = "complete"`.
-6. Only then continue into general diagnostics, Trace, certified source, patch synthesis, or execution.
+5. ChryPck validates and caches that region, then resumes the original task.
 
-ChryPck validates submitted evidence IDs, caps inferential confidence, rejects unsupported claims, and binds the bootstrap to the exact repository, immutable commit, and project profile. A lost in-memory bootstrap session fails safely by restarting the bounded semantic pass rather than guessing.
+The Atlas may remain globally partial. `semantic_coverage.objective_sufficient = true` and `semantic_atlas.status = "OBJECTIVE_SUFFICIENT"` permit the current bounded task to proceed. Global and objective coverage are reported separately; unmapped meaning stays explicitly unknown. If later dependency, contract, runtime, Trace, Dataflow, forecast, or planning navigation reaches another unmapped boundary, ChryPck requests that one region then.
 
-Completed Semantic Atlases are cached by repository + immutable commit + project profile + semantic schema version. The cache is deliberately abstracted from the semantic machinery; the initial implementation uses a bounded in-memory LRU so durable persistence can be added later without changing the MCP workflow.
+Incremental Semantic Atlas regions are cached by repository + immutable commit + project profile + semantic schema version and retained across objectives. Evidence fingerprints prevent stale region interpretations from being reused after their deterministic region evidence changes.
 
 ## Canonical Trace and certified Trace-to-plan handoff
 
@@ -93,7 +93,7 @@ Usable Trace or Dataflow Slice evidence can be carried into a distinct normal pl
 
 Exactly four MCP tools are exposed:
 
-- `chrypck_plan` — begin all repository work; complete Semantic Atlas bootstrap, return orientation/diagnostics, optionally run canonical Trace or Dataflow Slice, or create a fresh normal plan from certified `analysis_handoff` lineage.
+- `chrypck_plan` — begin all repository work; perform one objective-local semantic expansion only when needed, return structural/sparse-semantic orientation and diagnostics, optionally run Trace or Dataflow Slice, or create a fresh normal plan from certified `analysis_handoff` lineage.
 - `chrypck_context` — return only the certified Context Pack for a READY normal plan, optionally one server-issued exact-source segment.
 - `chrypck_execute` — execute typed edits or an explicitly approved server-issued path-move plan through native mutation, propagation, validation, and atomic publication.
 - `chrypck_result` — return bounded authoritative run state, including persisted Trace/certificate or accepted Trace lineage where applicable, semantic orientation, telemetry, validation/propagation outcome, and terminal evidence.
@@ -102,16 +102,16 @@ There is no model-facing GitHub search, arbitrary file read, arbitrary GitHub wr
 
 ## Governed connector manifest
 
-ChryPck publishes a credential-free, versioned governed-connector manifest at `GET /connector-manifest`. The manifest is the service-owned description of its connector identity, MCP transport, workflow, mandatory semantic bootstrap, canonical Trace, Dataflow Slice, certified analysis handoff, and the contracts for all four public MCP tools.
+ChryPck publishes a credential-free, versioned governed-connector manifest at `GET /connector-manifest`. The manifest describes its connector identity, MCP transport, lazy semantic expansion, focused analysis, certified analysis handoff, and all four public MCP tools.
 
 The manifest deliberately does not contain deployment credentials, application-specific project scope, enabled state, or user authorization. A host orchestrator such as Lemonade owns those installation and governance decisions while ChryPck remains authoritative for what the service is and which capabilities it exposes.
 
 ## Normal repository workflow
 
 ```text
-1. semantic bootstrap if required
-2. Structural Atlas + structural coverage
-3. Semantic Atlas + semantic coverage
+1. Structural Atlas + structural coverage immediately
+2. one objective-local semantic expansion if the active region is unmapped
+3. sparse Semantic Atlas + separate global/objective semantic coverage
 4. general dependency/symbol/state/native-contract diagnostics plus Effect / Runtime Atlas
 5. canonical Trace when causal/runtime investigation is useful
 6. if focused analysis was used, create a distinct normal plan with certified analysis_handoff (trace_handoff remains compatible)
@@ -145,7 +145,7 @@ plan
  → immutable snapshot
  → shared Repository Model
  → Structural Atlas
- → mandatory Semantic Atlas bootstrap if uncached
+ → lazy one-region Semantic Atlas expansion when navigation requires it
  → diagnostics
  → optional canonical Trace artifact/certificate
  → optional certified Trace-to-plan lineage
