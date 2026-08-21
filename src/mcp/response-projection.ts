@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { AnalysisResult, DiagnosticFinding } from "../analysis/analyzer.js";
 import type { ContextContinuation, ContextSegment } from "../planning/context-pack.js";
 import type { NativeContractRecord } from "../planning/planning-runner.js";
@@ -284,7 +285,30 @@ export function projectBoundedEventTraceResult(trace: any): Readonly<Record<stri
 
 const MAX_CONTEXT_GRANTS = 8;
 
-export function projectContextGrant(segment: any): Readonly<Record<string, unknown>> {
+function contextGrantScore(segment: any, objectiveTerms: readonly string[]): number {
+  const symbols = Array.isArray(segment?.symbols) ? segment.symbols : [];
+  const evidence = Array.isArray(segment?.evidence) ? segment.evidence : [];
+  const contracts = Array.isArray(segment?.contracts) ? segment.contracts : [];
+  const runtime = Array.isArray(segment?.runtime) ? segment.runtime : [];
+  const consumers = Array.isArray(segment?.consumers) ? segment.consumers : [];
+  const haystack = [segment?.path, ...symbols.map((row: any) => row?.name), ...evidence]
+    .filter(value => typeof value === "string").join(" ").toLowerCase();
+  const lexical = objectiveTerms.reduce((sum, term) => sum + (haystack.includes(term) ? 8 : 0), 0);
+  const directEvidence = Math.min(24, evidence.length * 4);
+  const causalEvidence = Math.min(28, runtime.length * 7 + contracts.length * 6);
+  const connectivity = Math.min(12, consumers.length * 2);
+  return lexical + directEvidence + causalEvidence + connectivity;
+}
+
+function contextGrantReason(segment: any): string {
+  if (Array.isArray(segment?.runtime) && segment.runtime.length) return "runtime/effect evidence intersects the active objective";
+  if (Array.isArray(segment?.contracts) && segment.contracts.length) return "contract provider/consumer evidence intersects the active objective";
+  if (Array.isArray(segment?.evidence) && segment.evidence.length) return "direct certified repository evidence is available";
+  if (Array.isArray(segment?.consumers) && segment.consumers.length) return "dependency consumers make this a plausible propagation surface";
+  return "corridor-certified source is available for bounded inspection";
+}
+
+export function projectContextGrant(segment: any, score = 0, rank = 1): Readonly<Record<string, unknown>> {
   const symbols = Array.isArray(segment?.symbols) ? segment.symbols : [];
   return Object.freeze({
     segment_id: segment?.id ?? segment?.segment_id ?? null,
@@ -296,8 +320,26 @@ export function projectContextGrant(segment: any): Readonly<Record<string, unkno
       line_end: symbol?.lineEnd ?? symbol?.line_end ?? null,
       expandable: Boolean(symbol?.expandable ?? symbol?.continuationId)
     }))),
-    evidence: Object.freeze((Array.isArray(segment?.evidence) ? segment.evidence : []).slice(0, 4))
+    evidence: Object.freeze((Array.isArray(segment?.evidence) ? segment.evidence : []).slice(0, 4)),
+    priority_rank: rank,
+    relevance_score: score,
+    why_relevant: contextGrantReason(segment),
+    expected_information_gain: score >= 50 ? "high" : score >= 24 ? "medium" : "low",
+    recommended_next_action: "call_chrypck_context_with_segment_id"
   });
+}
+
+function analysisFrontier(analysis: JsonRecord | null): Readonly<Record<string, unknown>> {
+  const result = asRecord(analysis?.result);
+  if (!result) return Object.freeze({ active: Object.freeze([]), excluded: Object.freeze([]), unresolved: Object.freeze([]) });
+  const tracePath = Array.isArray(result.path) ? result.path : [];
+  const targets = Array.isArray(result.targets) ? result.targets : [];
+  const active = [...tracePath.slice(-3), ...targets.slice(0, 3)].map(compactValue);
+  const excluded = (Array.isArray(result.excluded_branches) ? result.excluded_branches
+    : Array.isArray(result.excludedEvidence) ? result.excludedEvidence : []).slice(0, 8).map(compactValue);
+  const unresolved = (Array.isArray(result.unresolved_frontier) ? result.unresolved_frontier
+    : Array.isArray(result.unresolvedFrontier) ? result.unresolvedFrontier : []).slice(0, 8).map(compactValue);
+  return Object.freeze({ active: Object.freeze(active), excluded: Object.freeze(excluded), unresolved: Object.freeze(unresolved) });
 }
 
 /**
@@ -310,6 +352,21 @@ export function projectCompactResponse(response: Readonly<Record<string, any>>):
   const corridor = asRecord(response.corridor);
   const semanticBootstrap = asRecord(response.semantic_bootstrap);
   const artifactSummary = asRecord(response.artifacts);
+  const objective = typeof corridor?.objective === "string" ? corridor.objective : "";
+  const rankedContext = contextIndex
+    .map((segment, index) => ({ segment, index, score: contextGrantScore(segment, textTerms(objective)) }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, MAX_CONTEXT_GRANTS);
+  const frontier = analysisFrontier(asRecord(response.analysis));
+  const progressFingerprint = createHash("sha256").update(JSON.stringify({
+    run_id: response.run_id ?? null,
+    state: response.state ?? null,
+    semantic_coverage: response.semantic_coverage ?? null,
+    analysis: response.analysis ?? null,
+    context_grants: rankedContext.map(row => row.segment?.id ?? row.segment?.segment_id ?? null),
+    permitted_next_action: response.permitted_next_action ?? null,
+    result_commit_sha: response.result_commit_sha ?? null
+  })).digest("hex");
   return Object.freeze({
     schema_version: 1,
     response_mode: "compact",
@@ -345,7 +402,9 @@ export function projectCompactResponse(response: Readonly<Record<string, any>>):
       : null,
     context_available: Boolean(response.context_available ?? contextIndex.length > 0),
     context_segment_count: response.context_segment_count ?? contextIndex.length,
-    context_grants: Object.freeze(contextIndex.slice(0, MAX_CONTEXT_GRANTS).map(projectContextGrant)),
+    context_grants: Object.freeze(rankedContext.map((row, index) => projectContextGrant(row.segment, row.score, index + 1))),
+    evidence_frontier: frontier,
+    progress_fingerprint: progressFingerprint,
     artifact_handles: artifactSummary
       ? Object.freeze({ run_id: response.run_id ?? null, summary: compactValue(artifactSummary, 1) })
       : Object.freeze({ run_id: response.run_id ?? null }),

@@ -56,7 +56,7 @@ test("semantic bootstrap retains only the active bounded chunk", () => {
   assert.equal("previous_chunks" in compact.semantic_bootstrap, false);
 });
 
-test("context grants expose selectors, not relationship payloads", () => {
+test("context grants expose ranked selectors, not relationship payloads", () => {
   const grant = projectContextGrant({
     id: "ctx-3",
     path: "src/runtime.ts",
@@ -64,6 +64,26 @@ test("context grants expose selectors, not relationship payloads", () => {
     symbols: [{ name: "execute", kind: "function", lineStart: 1, lineEnd: 20, expandable: false }],
     consumers: Array.from({ length: 100 }, (_, index) => `consumer-${index}`)
   }) as any;
-  assert.deepEqual(Object.keys(grant), ["segment_id", "path", "symbols", "evidence"]);
+  assert.deepEqual(Object.keys(grant), ["segment_id", "path", "symbols", "evidence", "priority_rank", "relevance_score", "why_relevant", "expected_information_gain", "recommended_next_action"]);
   assert.equal(grant.symbols[0].line_start, 1);
+  assert.equal(grant.recommended_next_action, "call_chrypck_context_with_segment_id");
+  assert.equal("consumers" in grant, false);
+});
+
+test("compact response ranks causal context ahead of lexical-only context and fingerprints progress", () => {
+  const compact = projectCompactResponse({
+    run_id: "run-ranked",
+    state: "SUCCEEDED",
+    corridor: { objective: "repair Brace damage reaction", corridor: ["src/brace.ts"] },
+    context_index: [
+      { id: "lexical", path: "src/brace-labels.ts", symbols: [], evidence: ["name match"] },
+      { id: "causal", path: "src/runtime.ts", symbols: [], evidence: ["call edge"], runtime: [{ effectKinds: ["damage"] }], contracts: [{ id: "reaction" }] }
+    ],
+    analysis: { kind: "trace", result: { path: [{ file: "src/runtime.ts", symbol: "damage" }], excluded_branches: [{ selector: "src/ui.css", reason: "no causal edge" }] } },
+    permitted_next_action: "create_normal_plan_with_trace_handoff"
+  }) as any;
+  assert.equal(compact.context_grants[0].segment_id, "causal");
+  assert.equal(compact.context_grants[0].priority_rank, 1);
+  assert.equal(compact.evidence_frontier.excluded.length, 1);
+  assert.match(compact.progress_fingerprint, /^[a-f0-9]{64}$/);
 });

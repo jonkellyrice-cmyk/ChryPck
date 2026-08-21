@@ -16,11 +16,14 @@ export class InMemoryRepositorySnapshotCache implements RepositorySnapshotCache 
   readonly #entries = new Map<string, RepositorySnapshot>();
 
   async get(repository: string, commitSha: string): Promise<RepositorySnapshot | null> {
-    return this.#entries.get(cachePath(repository, commitSha)) ?? null;
+    const snapshot = this.#entries.get(cachePath(repository, commitSha)) ?? null;
+    console.info(JSON.stringify({ event: "chrypck.snapshot_cache", backend: "memory", outcome: snapshot ? "hit" : "miss", repository, commit_sha: commitSha }));
+    return snapshot;
   }
 
   async put(snapshot: RepositorySnapshot): Promise<void> {
     this.#entries.set(cachePath(snapshot.repository, snapshot.commitSha), snapshot);
+    console.info(JSON.stringify({ event: "chrypck.snapshot_cache", backend: "memory", outcome: "write", repository: snapshot.repository, commit_sha: snapshot.commitSha, files: snapshot.files.length }));
   }
 }
 
@@ -33,7 +36,11 @@ export class VercelBlobRepositorySnapshotCache implements RepositorySnapshotCach
       token: this.token,
       useCache: true
     });
-    if (!result || result.statusCode !== 200 || !result.stream) return null;
+    if (!result || result.statusCode !== 200 || !result.stream) {
+      console.info(JSON.stringify({ event: "chrypck.snapshot_cache", backend: "vercel-blob", outcome: "miss", repository, commit_sha: commitSha }));
+      return null;
+    }
+    console.info(JSON.stringify({ event: "chrypck.snapshot_cache", backend: "vercel-blob", outcome: "hit", repository, commit_sha: commitSha }));
     return await new Response(result.stream).json() as RepositorySnapshot;
   }
 
@@ -45,6 +52,7 @@ export class VercelBlobRepositorySnapshotCache implements RepositorySnapshotCach
       contentType: "application/json",
       token: this.token
     });
+    console.info(JSON.stringify({ event: "chrypck.snapshot_cache", backend: "vercel-blob", outcome: "write", repository: snapshot.repository, commit_sha: snapshot.commitSha, files: snapshot.files.length }));
   }
 }
 
