@@ -629,8 +629,17 @@ export class NativeMcpService {
     const context = run.artifacts.planning?.context;
     if (!context || context.segments.length === 0) throw new Error("Run has no certified Context Pack expansion. Complete any required objective-local semantic expansion and normal planning first.");
 
-    if (!input.segment_id) {
+    const taskSatisfied = focusedAnalysis && run.state === "SUCCEEDED";
+    const control = {
+      state: run.state,
+      task_satisfied: taskSatisfied,
+      completion_reason: taskSatisfied ? "focused_analysis_certified" : null
+    };
+
+    if (!input.segment_id && !input.target) {
       return Object.freeze({
+        ...control,
+        evidence_sufficient: taskSatisfied,
         run_id: run.runId,
         repository: run.repository,
         base_commit_sha: context.commitSha,
@@ -640,29 +649,68 @@ export class NativeMcpService {
         segments: Object.freeze(context.segments.map(projectContextIndexSegment)),
         omissions: context.omissions,
         granted_paths: context.grantedPaths,
-        permitted_next_action: "call chrypck_context again with one server-issued segment_id for bounded source expansion"
+        continuation: Object.freeze({
+          available: true,
+          kind: "select_certified_target",
+          allowed_selectors: Object.freeze(["segment_id", "target.path", "target.symbol"])
+        }),
+        permitted_next_action: "call chrypck_context with one server-issued segment_id or an exact target path/symbol from this certified index"
       });
     }
 
-    const segment = context.segments.find(candidate => candidate.id === input.segment_id);
-    if (segment) {
+    const selectedSegment = input.target
+      ? context.segments.find(candidate =>
+          candidate.path === input.target?.path &&
+          (!input.target.symbol || candidate.symbols.some(symbol => symbol.name === input.target?.symbol))
+        )
+      : context.segments.find(candidate => candidate.id === input.segment_id);
+
+    if (input.target && !selectedSegment) {
+      throw new Error(`Target is not present in this run's certified Context Pack: ${input.target.path}${input.target.symbol ? `#${input.target.symbol}` : ""}. Request another certified plan/analysis segment; arbitrary path access is not permitted.`);
+    }
+
+    if (selectedSegment) {
+      const projected = projectContextSourceSegment(selectedSegment) as Record<string, unknown>;
+      const continuations = Array.isArray(projected.continuations) ? projected.continuations as Array<Record<string, unknown>> : [];
+      const matchingContinuation = input.target?.symbol
+        ? continuations.find(row => row.symbol === input.target?.symbol)
+        : continuations[0];
+      const nextSegmentId = typeof matchingContinuation?.next_segment_id === "string"
+        ? matchingContinuation.next_segment_id
+        : null;
+      const evidenceSufficient = taskSatisfied || nextSegmentId === null;
       return Object.freeze({
+        ...control,
+        evidence_sufficient: evidenceSufficient,
         run_id: run.runId,
         repository: run.repository,
         base_commit_sha: context.commitSha,
         certified: true,
         authority: focusedAnalysis ? "read-only-analysis-context" : "normal-plan-context",
-        mode: "segment",
-        segments: Object.freeze([projectContextSourceSegment(segment)]),
+        mode: input.target ? "target" : "segment",
+        target: Object.freeze({ path: selectedSegment.path, symbol: input.target?.symbol ?? null }),
+        segments: Object.freeze([projected]),
         omissions: context.omissions,
         granted_paths: context.grantedPaths,
-        permitted_next_action: "use any returned next_segment_id to expand only that truncated certified symbol, or execute/request another certified segment"
+        continuation: Object.freeze({
+          available: nextSegmentId !== null,
+          kind: nextSegmentId ? "expand_symbol_continuation" : "none",
+          next_segment_id: nextSegmentId,
+          target_path: selectedSegment.path,
+          target_symbol: input.target?.symbol ?? null
+        }),
+        permitted_next_action: nextSegmentId
+          ? "call chrypck_context with continuation.next_segment_id"
+          : "report the certified read-only evidence if it satisfies the user objective, otherwise select another certified target"
       });
     }
 
     const continuation = context.continuations.find(candidate => candidate.id === input.segment_id);
     if (!continuation) throw new Error(`Unknown server-issued Context Pack segment: ${input.segment_id}`);
+    const evidenceSufficient = taskSatisfied || continuation.nextContinuationId === null;
     return Object.freeze({
+      ...control,
+      evidence_sufficient: evidenceSufficient,
       run_id: run.runId,
       repository: run.repository,
       base_commit_sha: context.commitSha,
@@ -672,9 +720,16 @@ export class NativeMcpService {
       segments: Object.freeze([projectContextContinuation(continuation)]),
       omissions: context.omissions,
       granted_paths: context.grantedPaths,
+      continuation: Object.freeze({
+        available: continuation.nextContinuationId !== null,
+        kind: continuation.nextContinuationId ? "expand_symbol_continuation" : "none",
+        next_segment_id: continuation.nextContinuationId,
+        target_path: continuation.path,
+        target_symbol: continuation.symbol
+      }),
       permitted_next_action: continuation.nextContinuationId
-        ? "call chrypck_context with the returned next_segment_id for the next bounded chunk of this same certified symbol"
-        : "chrypck_execute_or_request_another_certified_segment"
+        ? "call chrypck_context with continuation.next_segment_id"
+        : "report the certified read-only evidence if it satisfies the user objective, otherwise select another certified target"
     });
   }
 
