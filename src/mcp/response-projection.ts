@@ -350,6 +350,8 @@ export function projectCompactResponse(response: Readonly<Record<string, any>>):
       ? Object.freeze({ run_id: response.run_id ?? null, summary: compactValue(artifactSummary, 1) })
       : Object.freeze({ run_id: response.run_id ?? null }),
     failure: response.failure ? compactValue(response.failure, 1) : null,
-    permitted_next_action: response.permitted_next_action ?? null
+    permitted_next_action: contextIndex.length > 0 && response.analysis
+      ? `expand_one_context_grant_then_${response.permitted_next_action ?? "resume"}`
+      : response.permitted_next_action ?? null
   });
 }
