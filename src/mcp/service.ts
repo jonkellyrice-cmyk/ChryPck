@@ -798,6 +798,26 @@ export class NativeMcpService {
       project_profile: binding?.profileId ?? this.profileFor(run.repository).id,
       state: run.state,
       terminal: run.stateRecord.terminal,
+      task_satisfied: run.stateRecord.terminal || Boolean(
+        (run.artifacts.trace || run.artifacts.dataflowSlice) &&
+        run.state === "SUCCEEDED"
+      ),
+      evidence_sufficient: run.stateRecord.terminal || Boolean(
+        (run.artifacts.trace || run.artifacts.dataflowSlice) &&
+        run.state === "SUCCEEDED"
+      ),
+      completion_reason: run.stateRecord.terminal
+        ? "governed_run_terminal"
+        : (run.artifacts.trace || run.artifacts.dataflowSlice) && run.state === "SUCCEEDED"
+          ? "focused_analysis_certified"
+          : null,
+      continuation: run.state === "READY"
+        ? Object.freeze({
+            available: true,
+            kind: "select_certified_target",
+            permitted_tool: "chrypck_context"
+          })
+        : Object.freeze({ available: false, kind: "none" }),
       request_fingerprint: run.requestIdentity.fingerprint,
       scope_lock_fingerprint: run.scopeLock.fingerprint,
       base_commit_sha: run.requestCommitSha,
