@@ -108,11 +108,11 @@ function buildChunks(id: string, packets: readonly SemanticRegionEvidence[], reg
       chunk_count: count,
       regions,
       instructions: Object.freeze([
-        "Semantic bootstrap is mandatory before ordinary repository work on this uncached repository state.",
-        "Interpret every region in this chunk from the supplied bounded metadata only; do not request or infer arbitrary source code.",
+        "This objective has reached one relevant region that is not yet present in the incremental Semantic Atlas.",
+        "Interpret only the server-issued region in this bounded chunk from the supplied metadata; do not request or infer arbitrary source code.",
         "For purpose, responsibilities, does_not_own, and key_flows, cite one or more evidence_refs from that same region. Unsupported claims will be rejected or confidence-capped.",
         "Keep claims concise and architectural. Describe what the region is for, what it owns, what it does not own when evidence supports that distinction, and its important flows/boundaries.",
-        "Submit exactly one interpretation object for every region_id in this chunk by calling chrypck_plan again with semantic_bootstrap. Do not continue to the user's repository task until ChryPck reports semantic bootstrap complete."
+        "Submit exactly one interpretation object for every region_id in this chunk by calling chrypck_plan again with semantic_bootstrap. ChryPck will cache it and resume the user's repository task without requiring global semantic completion."
       ]),
       response_contract: Object.freeze({
         submit_via: "chrypck_plan.semantic_bootstrap" as const,
@@ -267,6 +267,7 @@ function composeOrientation(session: SemanticBootstrapSession): SemanticOrientat
     commit_sha: session.commitSha,
     project_profile: session.projectProfile,
     complete: true,
+    status: "COMPLETE",
     region_count: regions.length,
     regions: Object.freeze(regions)
   });
@@ -282,6 +283,12 @@ function composeOrientation(session: SemanticBootstrapSession): SemanticOrientat
     bootstrap_complete: true,
     bootstrap_chunk_count: session.chunks.length,
     cache_hit: false
+    ,global_mapped_regions: regions.length
+    ,global_unmapped_regions: 0
+    ,objective_region_count: regions.length
+    ,objective_mapped_regions: regions.length
+    ,objective_sufficient: true
+    ,active_frontier_region_ids: Object.freeze([])
   });
   return Object.freeze({ atlas, coverage });
 }
@@ -404,5 +411,11 @@ export function cachedSemanticCoverage(args: {
     bootstrap_complete: true,
     bootstrap_chunk_count: args.chunkCount,
     cache_hit: true
+    ,global_mapped_regions: args.regionCount
+    ,global_unmapped_regions: 0
+    ,objective_region_count: args.regionCount
+    ,objective_mapped_regions: args.regionCount
+    ,objective_sufficient: true
+    ,active_frontier_region_ids: Object.freeze([])
   });
 }

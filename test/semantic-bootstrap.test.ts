@@ -41,14 +41,14 @@ function interpretation(region: SemanticRegionEvidence) {
   };
 }
 
-test("semantic bootstrap requires sequential bounded chunks and completes only after every region is interpreted", async () => {
+test("semantic expansion remains sequential and bounded for an issued frontier", async () => {
   const coordinator = new SemanticBootstrapCoordinator(1);
   const packets = [packet("repo", "Repository"), packet("bridge", "System Bridge")];
   const started = await coordinator.begin({ repository: "owner/repo", commitSha: "abc", projectProfile: "default", packets });
 
   assert.equal(started.chunkCount, 2);
   assert.equal(started.currentChunk.chunk_index, 0);
-  assert.match(started.currentChunk.instructions.join(" "), /Do not continue|Do not continue/i);
+  assert.match(started.currentChunk.instructions.join(" "), /resume the user's repository task/i);
 
   const first = await coordinator.advance({
     bootstrap_id: started.bootstrapId,

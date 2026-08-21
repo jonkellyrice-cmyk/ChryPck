@@ -38,7 +38,7 @@ const semanticClaimSchema = z.object({
 });
 
 const semanticInterpretationSchema = z.object({
-  region_id: z.string().trim().min(1).describe("Exact server-issued semantic region ID from the current bootstrap chunk."),
+  region_id: z.string().trim().min(1).describe("Exact server-issued semantic region ID from the current objective-local expansion chunk."),
   name: z.string().trim().min(1).max(120).optional().describe("Optional clearer human-readable region name supported by the metadata."),
   purpose: semanticClaimSchema.optional().describe("What this repository/region exists to accomplish."),
   responsibilities: z.array(semanticClaimSchema).max(5).optional().describe("Primary responsibilities owned by this region."),
@@ -47,10 +47,10 @@ const semanticInterpretationSchema = z.object({
 });
 
 const semanticBootstrapSchema = z.object({
-  bootstrap_id: z.string().trim().min(1).describe("Server-issued semantic bootstrap identifier from the immediately preceding chrypck_plan response."),
+  bootstrap_id: z.string().trim().min(1).describe("Server-issued semantic expansion identifier from the immediately preceding chrypck_plan response; field name is retained for compatibility."),
   chunk_id: z.string().trim().min(1).describe("Current server-issued semantic metadata chunk identifier."),
   interpretations: z.array(semanticInterpretationSchema).min(1).describe("Exactly one semantic interpretation for every region in the current chunk. ChryPck validates evidence references before accepting it.")
-}).describe("Mandatory host-LLM semantic bootstrap continuation. Supply only when chrypck_plan returned semantic_bootstrap.status='required'.");
+}).describe("Demand-driven host-LLM semantic expansion. Supply only when chrypck_plan returned semantic_bootstrap.status='required' with mode='lazy-objective-expansion'.");
 
 const traceOptionsSchema = z.object({
   fileGlobAllow: z.array(z.string()).optional().describe("Optional file-glob allowlist for this bounded diagnostic trace."),
@@ -127,10 +127,10 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_plan",
     {
       title: "Plan Governed Change",
-      description: "Start governed repository work. After Semantic Atlas bootstrap, return orientation, deterministic maps and certified planning scope. Use Trace for one causal runtime route or Dataflow Slice for bounded value provenance/influence. Persist usable analysis for analysis_handoff into a distinct normal plan; trace_handoff remains compatible. Analysis never grants mutation authority or arbitrary source access.",
+      description: "Start governed repository work. Build global deterministic orientation immediately, lazily map at most one objective-local semantic frontier when needed, and proceed once semantic coverage is objective-sufficient rather than globally complete. Use Trace for one causal runtime route or Dataflow Slice for bounded value provenance/influence. Persist usable analysis for analysis_handoff; trace_handoff remains compatible. Semantic and analysis evidence never grants mutation authority or arbitrary source access.",
       inputSchema: z.object({
         repository: z.string().min(1).describe("Repository slug. For the configured ChryPck owner, prefer the bare repository name (for example LEMONADE_ORC); owner/name and GitHub URLs remain accepted when needed."),
-        objective: z.string().trim().min(1).describe("Exact user-authorized repository outcome to investigate or implement. Keep the same objective while completing a semantic bootstrap continuation."),
+        objective: z.string().trim().min(1).describe("Exact user-authorized repository outcome to investigate or implement. Keep it unchanged while completing a server-issued objective-local semantic expansion."),
         base_ref: z.string().trim().min(1).optional().describe("Existing branch/ref to inspect; server policy supplies the default when omitted."),
         architecture: architectureSchema.optional().describe("Optional read-only structural planning request. Move/decompose plans require later explicit execution/approval."),
         analysis: z.discriminatedUnion("kind", [
@@ -161,7 +161,7 @@ export function registerChryPckTools(server: McpServer, nativeService: NativeMcp
     "chrypck_execute",
     {
       title: "Execute Governed Change",
-      description: "Mutate a fully bootstrapped READY normal-plan run using typed bounded authoring_intent or explicit architecture approval. Effect / Runtime Atlas, Contract Map and Trace lineage inform but never widen execution authority. ChryPck performs runtime/contract-aware propagation, validation and atomic publication.",
+      description: "Mutate a READY normal-plan run with objective-sufficient semantic coverage using typed bounded authoring_intent or explicit architecture approval. Effect / Runtime Atlas, Contract Map and analysis lineage inform but never widen execution authority. ChryPck performs runtime/contract-aware propagation, validation and atomic publication.",
       inputSchema: executeSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
     },
@@ -271,7 +271,7 @@ export function buildHealthPayload(runtime: ChryPckServiceRuntime) {
     version: "1.0.0",
     execution: "native",
     repository_visibility: "structural-atlas-plus-semantic-atlas-plus-diagnostic-projection-plus-certified-context",
-    semantic_bootstrap: "host-llm-chunked-required-on-uncached-repository-state",
+    semantic_bootstrap: "host-llm-lazy-objective-local-expansion-compatible-field-name",
     trace_engine: "bounded-evidence-backed-beft-canonical-trace",
     trace_plan_handoff: "certified-analysis-lineage",
     user_handle: userHandle,

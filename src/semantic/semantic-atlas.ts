@@ -30,11 +30,15 @@ export function semanticOrientationSummary(orientation: SemanticOrientation): Re
     repository: orientation.atlas.repository,
     commit_sha: orientation.atlas.commit_sha,
     complete: orientation.atlas.complete,
+    status: orientation.atlas.status,
     region_count: orientation.atlas.region_count,
     synthesized_regions: orientation.coverage.synthesized_regions,
     partial_regions: orientation.coverage.partial_regions,
     deterministic_only_regions: orientation.coverage.deterministic_only_regions,
     rejected_claims: orientation.coverage.rejected_claims,
     cache_hit: orientation.coverage.cache_hit
+    ,objective_sufficient: orientation.coverage.objective_sufficient
+    ,global_mapped_regions: orientation.coverage.global_mapped_regions
+    ,global_unmapped_regions: orientation.coverage.global_unmapped_regions
   });
 }

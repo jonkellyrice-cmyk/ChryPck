@@ -91,6 +91,7 @@ export interface SemanticAtlas {
   readonly commit_sha: string;
   readonly project_profile: string;
   readonly complete: boolean;
+  readonly status: "EMPTY" | "PARTIAL" | "OBJECTIVE_SUFFICIENT" | "COMPLETE";
   readonly region_count: number;
   readonly regions: readonly SemanticRegion[];
 }
@@ -107,6 +108,12 @@ export interface SemanticCoverageLedger {
   readonly bootstrap_complete: boolean;
   readonly bootstrap_chunk_count: number;
   readonly cache_hit: boolean;
+  readonly global_mapped_regions: number;
+  readonly global_unmapped_regions: number;
+  readonly objective_region_count: number;
+  readonly objective_mapped_regions: number;
+  readonly objective_sufficient: boolean;
+  readonly active_frontier_region_ids: readonly string[];
 }
 
 export interface SemanticBootstrapChunk {
@@ -130,6 +137,7 @@ export interface SemanticBootstrapSubmissionInput {
 
 export interface SemanticBootstrapState {
   readonly status: "required" | "complete";
+  readonly mode?: "lazy-objective-expansion";
   readonly bootstrap_id: string | null;
   readonly current_chunk: SemanticBootstrapChunk | null;
 }
